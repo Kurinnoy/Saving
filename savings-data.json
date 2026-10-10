@@ -1,0 +1,64 @@
+[
+  {
+    "month": "2026-10",
+    "salary": 4497.99,
+    "me": 0,
+    "wife": 0,
+    "son": 0,
+    "tenth": 427.31
+  },
+  {
+    "month": "2026-03",
+    "salary": 4497.99,
+    "me": 600,
+    "wife": 275,
+    "son": 100,
+    "tenth": 427.31
+  },
+  {
+    "month": "2026-02",
+    "salary": 4497.98,
+    "me": 600,
+    "wife": 275,
+    "son": 100,
+    "tenth": 427.31
+  },
+  {
+    "month": "2026-01",
+    "salary": 4878.4,
+    "me": 600,
+    "wife": 275,
+    "son": 300,
+    "tenth": 463.45,
+    "spendings": [
+      {
+        "id": "muzpa6o601rk",
+        "who": "wife",
+        "note": "",
+        "amount": 275
+      }
+    ],
+    "incomes": [
+      {
+        "id": "muzq35gqf6ty",
+        "who": "son",
+        "note": "birthday",
+        "amount": 200
+      },
+      {
+        "id": "muzq3jw5j5yw",
+        "who": "son",
+        "note": "monthly",
+        "amount": 100
+      }
+    ]
+  },
+  {
+    "month": "2026-11",
+    "salary": 4497.99,
+    "me": 0,
+    "wife": 0,
+    "son": 0,
+    "tenth": 427.31
+  }
+]
