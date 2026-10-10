@@ -21,6 +21,8 @@
   button:disabled { opacity: .6; cursor: default; }
   .tools { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
   .note { font-size: 12px; color: #777; }
+  .toggle { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 14px; color: #222; cursor: pointer; }
+  .toggle input { width: auto; }
   #status { margin-top: 12px; padding: 8px 12px; border-radius: 6px; display: none; }
   #status.ok { display: block; background: #e3f6e8; color: #1a7a35; }
   #status.err { display: block; background: #fde4e4; color: #b00020; }
@@ -40,6 +42,7 @@
       <div><label for="path">File path</label><input id="path" value="savings-data.json" required></div>
       <div><label for="token">Personal access token</label><input id="token" type="password" required></div>
     </form>
+    <label class="toggle"><input type="checkbox" id="autoSync"> Save automatically after every change</label>
     <div class="tools">
       <button type="button" id="saveCfg" class="secondary">Save settings</button>
       <button type="button" id="push">Save data to GitHub</button>
@@ -52,17 +55,19 @@
 </main>
 
 <script src="logic.js"></script>
+<script src="sync.js"></script>
 <script>
 const KEY = 'familySavings';
-const CFG_KEY = 'githubConfig';
-const { isValidGithubConfig, githubUrl, encodeContent, decodeContent, isValidBackup } = Savings;
+const { CFG_KEY, SYNCED_KEY, getFile, push } = GitSync;
+const { isValidGithubConfig, decodeContent, isValidBackup } = Savings;
 const $ = id => document.getElementById(id);
 const FIELDS = ['owner', 'repo', 'branch', 'path', 'token'];
 
-const saved = JSON.parse(localStorage.getItem(CFG_KEY) || '{}');
+const saved = GitSync.config();
 FIELDS.forEach(f => { if (typeof saved[f] === 'string') $(f).value = saved[f]; });
+$('autoSync').checked = !!saved.autoSync;
 
-const readConfig = () => Object.fromEntries(FIELDS.map(f => [f, $(f).value.trim()]));
+const readConfig = () => ({ ...Object.fromEntries(FIELDS.map(f => [f, $(f).value.trim()])), autoSync: $('autoSync').checked });
 
 function status(text, ok) {
   const s = $('status');
@@ -76,28 +81,11 @@ function validConfig() {
     status('Fill in all fields. Owner and repository may only use letters, digits, "-", "_" and "."; the path must stay inside the repository.', false);
     return null;
   }
+  // A different target file has not been loaded or saved by this browser yet.
+  const old = GitSync.config();
+  if (['owner', 'repo', 'branch', 'path'].some(f => old[f] !== c[f])) localStorage.removeItem(SYNCED_KEY);
   localStorage.setItem(CFG_KEY, JSON.stringify(c));
   return c;
-}
-
-const headers = c => ({
-  Accept: 'application/vnd.github+json',
-  Authorization: `Bearer ${c.token}`,
-  'X-GitHub-Api-Version': '2022-11-28'
-});
-
-async function fail(res) {
-  let msg = '';
-  try { msg = (await res.json()).message; } catch { /* no body */ }
-  throw new Error(`GitHub ${res.status}${msg ? ': ' + msg : ''}`);
-}
-
-// Returns the current file ({ sha, content }) or null when it does not exist yet.
-async function getFile(c) {
-  const res = await fetch(`${githubUrl(c)}?ref=${encodeURIComponent(c.branch)}`, { headers: headers(c), cache: 'no-store' });
-  if (res.status === 404) return null;
-  if (!res.ok) await fail(res);
-  return res.json();
 }
 
 async function run(work) {
@@ -122,12 +110,7 @@ $('push').addEventListener('click', () => {
   const c = validConfig();
   if (!c) return;
   run(async () => {
-    const existing = await getFile(c);
-    const text = JSON.stringify(JSON.parse(localStorage.getItem(KEY) || '[]'), null, 2);
-    const body = { message: `Update savings data ${new Date().toISOString()}`, content: encodeContent(text), branch: c.branch };
-    if (existing) body.sha = existing.sha;
-    const res = await fetch(githubUrl(c), { method: 'PUT', headers: { ...headers(c), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    if (!res.ok) await fail(res);
+    await push(c);
     status(`Data saved to ${c.owner}/${c.repo}/${c.path}.`, true);
   });
 });
@@ -142,13 +125,14 @@ $('pull').addEventListener('click', () => {
     if (!isValidBackup(parsed)) throw new Error('The file is not valid savings data.');
     if (!confirm('Replace current data with the data from GitHub?')) return;
     localStorage.setItem(KEY, JSON.stringify(parsed));
+    localStorage.setItem(SYNCED_KEY, '1');
     status(`Loaded ${parsed.length} month(s) from GitHub.`, true);
   });
 });
 
 $('forget').addEventListener('click', () => {
   $('token').value = '';
-  const c = JSON.parse(localStorage.getItem(CFG_KEY) || '{}');
+  const c = GitSync.config();
   delete c.token;
   localStorage.setItem(CFG_KEY, JSON.stringify(c));
   status('Token removed from this browser.', true);

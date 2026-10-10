@@ -52,7 +52,7 @@
 <body>
 <main>
   <h1>Family Savings</h1>
-  <nav><a href="index.html" class="current">Family Savings</a><a href="salary.html">My salary</a><a href="config.html">Config</a></nav>
+  <nav><a href="index.html" class="current">Family Savings</a><a href="salary.html">My salary</a><a href="config.html">Config</a><span id="syncStatus" class="note"></span></nav>
 
   <div class="card">
     <div class="tools" style="margin-top:0">
@@ -98,6 +98,7 @@
 </main>
 
 <script src="logic.js"></script>
+<script src="sync.js"></script>
 <script>
 const KEY = 'familySavings';
 const { FIELDS, PEOPLE, fmt, sum, salaryOf, withTenth, esc, spendingsOf, incomesOf, spentOf, incomeOf, leftOf, spentTotals, incomeTotals, totals: calcTotals,
@@ -107,7 +108,7 @@ const open = new Set();
 const $ = id => document.getElementById(id);
 let data = JSON.parse(localStorage.getItem(KEY) || '[]');
 
-const persist = () => localStorage.setItem(KEY, JSON.stringify(data));
+const persist = () => { localStorage.setItem(KEY, JSON.stringify(data)); GitSync.schedule(); };
 
 function resetForm() {
   $('form').reset();
