@@ -29,15 +29,19 @@ const GitSync = (() => {
     return res.json();
   }
 
+  // The data lives in sessionStorage: it is gone when the tab or browser session closes.
+  const data = () => JSON.parse(sessionStorage.getItem(KEY) || '[]');
+
   async function push(c) {
     if (!c.password) throw new Error('Set an encryption password on the Config page: data is only sent to GitHub encrypted.');
+    if (sessionStorage.getItem(KEY) === null) throw new Error('No data is loaded in this session.');
     const existing = await getFile(c);
-    const text = await Savings.encryptText(JSON.stringify(JSON.parse(localStorage.getItem(KEY) || '[]'), null, 2), c.password);
+    const text = await Savings.encryptText(JSON.stringify(data(), null, 2), c.password);
     const body = { message: `Update savings data ${new Date().toISOString()}`, content: encodeContent(text), branch: c.branch };
     if (existing) body.sha = existing.sha;
     const res = await fetch(githubUrl(c), { method: 'PUT', headers: { ...headers(c), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     if (!res.ok) await fail(res);
-    localStorage.setItem(SYNCED_KEY, '1');
+    sessionStorage.setItem(SYNCED_KEY, '1');
   }
 
   const show = (text, ok) => {
@@ -51,12 +55,33 @@ const GitSync = (() => {
   let running = false;
   let again = false;
 
+  // Reads and decrypts the file from GitHub; [] when it does not exist yet.
+  async function fetchRemote(c) {
+    const file = await getFile(c);
+    if (!file || !file.content) return [];
+    let text = Savings.decodeContent(file.content);
+    if (Savings.isEncrypted(text)) text = await Savings.decryptText(text, c.password);
+    const remote = JSON.parse(text);
+    if (!Savings.isValidBackup(remote)) throw new Error('The file in GitHub is not valid savings data.');
+    return remote;
+  }
+
+  // First auto-save from this session: never overwrite GitHub months this session does not have.
+  async function checkBeforeFirstPush(c) {
+    const remote = await fetchRemote(c);
+    const local = new Set(data().map(e => e.month));
+    if (remote.some(e => !local.has(e.month))) {
+      throw new Error('GitHub has data this session does not have: reload the page or load it on the Config page');
+    }
+  }
+
   async function flush() {
     if (running) { again = true; return; }
     const c = config();
     running = true;
     show('Saving to GitHub...', true);
     try {
+      if (sessionStorage.getItem(SYNCED_KEY) !== '1') await checkBeforeFirstPush(c);
       await push(c);
       show('Saved to GitHub', true);
     } catch (err) {
@@ -75,14 +100,41 @@ const GitSync = (() => {
       show('Auto-save is waiting: set an encryption password on the Config page', false);
       return;
     }
-    // A browser that never loaded or saved this repository must not overwrite it.
-    if (localStorage.getItem(SYNCED_KEY) !== '1') {
-      show('Auto-save is waiting: load or save data on the Config page first', false);
-      return;
-    }
     clearTimeout(timer);
     timer = setTimeout(flush, DELAY_MS);
   }
 
-  return { config, getFile, push, schedule, SYNCED_KEY, CFG_KEY };
+  // Runs once per page: moves old permanent data into the session, or loads the session data from GitHub.
+  let readyPromise = null;
+  const ready = () => readyPromise || (readyPromise = init());
+
+  async function init() {
+    const old = localStorage.getItem(KEY);
+    let migrated = false;
+    if (old !== null) {
+      if (sessionStorage.getItem(KEY) === null) { sessionStorage.setItem(KEY, old); migrated = true; }
+      localStorage.removeItem(KEY);
+      localStorage.removeItem(SYNCED_KEY);
+    }
+    if (sessionStorage.getItem(KEY) !== null) {
+      if (migrated) schedule();
+      return;
+    }
+    const c = config();
+    if (!isValidGithubConfig(c) || !c.password) {
+      show('Not connected to GitHub: data is lost when this tab closes', false);
+      return;
+    }
+    show('Loading from GitHub...', true);
+    try {
+      const remote = await fetchRemote(c);
+      sessionStorage.setItem(KEY, JSON.stringify(remote));
+      sessionStorage.setItem(SYNCED_KEY, '1');
+      show(`Loaded ${remote.length} month(s) from GitHub`, true);
+    } catch (err) {
+      show(`GitHub load failed: ${err.message}`, false);
+    }
+  }
+
+  return { config, getFile, push, schedule, ready, SYNCED_KEY, CFG_KEY };
 })();

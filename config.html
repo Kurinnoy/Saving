@@ -85,7 +85,7 @@ function validConfig() {
   }
   // A different target file has not been loaded or saved by this browser yet.
   const old = GitSync.config();
-  if (['owner', 'repo', 'branch', 'path'].some(f => old[f] !== c[f])) localStorage.removeItem(SYNCED_KEY);
+  if (['owner', 'repo', 'branch', 'path'].some(f => old[f] !== c[f])) sessionStorage.removeItem(SYNCED_KEY);
   localStorage.setItem(CFG_KEY, JSON.stringify(c));
   return c;
 }
@@ -112,6 +112,7 @@ $('push').addEventListener('click', () => {
   const c = validConfig();
   if (!c) return;
   run(async () => {
+    await GitSync.ready();
     await push(c);
     status(`Data saved to ${c.owner}/${c.repo}/${c.path}.`, true);
   });
@@ -131,8 +132,8 @@ $('pull').addEventListener('click', () => {
     const parsed = JSON.parse(text);
     if (!isValidBackup(parsed)) throw new Error('The file is not valid savings data.');
     if (!confirm('Replace current data with the data from GitHub?')) return;
-    localStorage.setItem(KEY, JSON.stringify(parsed));
-    localStorage.setItem(SYNCED_KEY, '1');
+    sessionStorage.setItem(KEY, JSON.stringify(parsed));
+    sessionStorage.setItem(SYNCED_KEY, '1');
     status(`Loaded ${parsed.length} month(s) from GitHub.`, true);
   });
 });

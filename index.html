@@ -106,9 +106,9 @@ const { FIELDS, PEOPLE, fmt, sum, salaryOf, withTenth, esc, spendingsOf, incomes
 const LABELS = { me: 'Me', wife: 'Wife', son: 'Son', tenth: '10%' };
 const open = new Set();
 const $ = id => document.getElementById(id);
-let data = JSON.parse(localStorage.getItem(KEY) || '[]');
+let data = [];
 
-const persist = () => { localStorage.setItem(KEY, JSON.stringify(data)); GitSync.schedule(); };
+const persist = () => { sessionStorage.setItem(KEY, JSON.stringify(data)); GitSync.schedule(); };
 
 function resetForm() {
   $('form').reset();
@@ -262,6 +262,10 @@ $('file').addEventListener('change', async ev => {
 
 resetForm();
 render();
+GitSync.ready().then(() => {
+  data = JSON.parse(sessionStorage.getItem(KEY) || '[]');
+  render();
+});
 </script>
 </body>
 </html>

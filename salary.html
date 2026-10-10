@@ -83,9 +83,9 @@ const rates = JSON.parse(localStorage.getItem(RATES_KEY) || '{}');
 const pending = new Set();
 const $ = id => document.getElementById(id);
 const open = new Set();
-let data = JSON.parse(localStorage.getItem(KEY) || '[]');
+let data = [];
 
-const persist = () => { localStorage.setItem(KEY, JSON.stringify(data)); GitSync.schedule(); };
+const persist = () => { sessionStorage.setItem(KEY, JSON.stringify(data)); GitSync.schedule(); };
 
 function resetForm() {
   $('form').reset();
@@ -211,6 +211,10 @@ $('rows').addEventListener('click', ev => {
 
 resetForm();
 render();
+GitSync.ready().then(() => {
+  data = JSON.parse(sessionStorage.getItem(KEY) || '[]');
+  render();
+});
 </script>
 </body>
 </html>
