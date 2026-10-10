@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Family Savings - Tests</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 800px; margin: 20px auto; padding: 0 20px; }
+  #summary { font-size: 20px; font-weight: bold; padding: 12px; border-radius: 8px; margin-bottom: 16px; }
+  #summary.ok { background: #e3f6e8; color: #1a7a35; }
+  #summary.fail { background: #fde4e4; color: #b00020; }
+  h3 { margin: 18px 0 6px; }
+  .t { padding: 4px 8px; border-bottom: 1px solid #eee; font-size: 14px; }
+  .t.pass::before { content: "PASS  "; color: #1a7a35; font-weight: bold; }
+  .t.fail::before { content: "FAIL  "; color: #b00020; font-weight: bold; }
+  .t small { display: block; color: #b00020; margin-left: 48px; }
+</style>
+</head>
+<body>
+<h1>Family Savings - Tests</h1>
+<div id="summary"></div>
+<div id="out"></div>
+<p><a href="index.html">Back to the app</a></p>
+
+<script src="logic.js"></script>
+<script>
+const { FIELDS, PEOPLE, fmt, sum, esc, salaryOf, salaryTotal, netSalaryOf, netSalaryTotal, tenthFromSalary, withTenth, afterTenthOf, afterTenthTotal, spendingsOf, incomesOf, spentOf, incomeOf, leftOf, spentTotals, incomeTotals, totals, sortDesc,
+  nextFreeMonth, copyEntry, upsert, remove, parseEntry, setSalary, MONTHLY_PAY_UAH, payOf, setMonthlyPay, allocationOf, setAllocation, savingOf, setMonthlySaving, salaryLeftOf, isValidGithubConfig, githubUrl, encodeContent, decodeContent, rateDate, prevDate, uahToUsd, parseItem, addItem, removeItem, toCsv, isValidBackup } = Savings;
+const parseSpending = parseItem;
+const addSpending = (d, m, s) => addItem(d, m, 'spendings', s);
+const removeSpending = (d, m, id) => removeItem(d, m, 'spendings', id);
+
+let passed = 0, failed = 0, group;
+const out = document.getElementById('out');
+
+function describe(name, fn) {
+  const h = document.createElement('h3');
+  h.textContent = name;
+  out.appendChild(h);
+  group = out;
+  fn();
+}
+
+function it(name, fn) {
+  const row = document.createElement('div');
+  row.className = 't';
+  try {
+    fn();
+    row.classList.add('pass');
+    row.textContent = name;
+    passed++;
+  } catch (e) {
+    row.classList.add('fail');
+    row.textContent = name;
+    const s = document.createElement('small');
+    s.textContent = e.message;
+    row.appendChild(s);
+    failed++;
+  }
+  group.appendChild(row);
+}
+
+function eq(actual, expected) {
+  const a = JSON.stringify(actual), b = JSON.stringify(expected);
+  if (a !== b) throw new Error(`expected ${b} but got ${a}`);
+}
+
+const E = (month, me = 0, wife = 0, son = 0, tenth = 0) => ({ month, me, wife, son, tenth });
+const S = (id, who, amount, note = '') => ({ id, who, note, amount });
+
+describe('fmt', () => {
+  it('formats with two decimals', () => eq(fmt(5), '5.00'));
+  it('adds thousands separator', () => eq(fmt(1234.5), '1,234.50'));
+  it('rounds to two decimals', () => eq(fmt(1.236), '1.24'));
+  it('formats zero', () => eq(fmt(0), '0.00'));
+});
+
+describe('sum', () => {
+  it('adds all four fields', () => eq(sum(E('2026-01', 1, 2, 3, 4)), 10));
+  it('returns 0 for an empty entry', () => eq(sum(E('2026-01')), 0));
+});
+
+describe('totals', () => {
+  it('totals each field and all together', () =>
+    eq(totals([E('2026-01', 1, 2, 3, 4), E('2026-02', 10, 20, 30, 40)]),
+      { me: 11, wife: 22, son: 33, tenth: 44, all: 110 }));
+  it('is zero for empty data', () => eq(totals([]), { me: 0, wife: 0, son: 0, tenth: 0, all: 0 }));
+});
+
+describe('sortDesc', () => {
+  it('puts newest month first', () =>
+    eq(sortDesc([E('2026-01'), E('2026-03'), E('2025-12')]).map(e => e.month), ['2026-03', '2026-01', '2025-12']));
+  it('does not change the original array', () => {
+    const d = [E('2026-01'), E('2026-02')];
+    sortDesc(d);
+    eq(d.map(e => e.month), ['2026-01', '2026-02']);
+  });
+});
+
+describe('nextFreeMonth', () => {
+  it('returns the following month', () => eq(nextFreeMonth([E('2026-05')], '2026-05'), '2026-06'));
+  it('rolls over to the next year', () => eq(nextFreeMonth([E('2026-12')], '2026-12'), '2027-01'));
+  it('skips months that already exist', () =>
+    eq(nextFreeMonth([E('2026-05'), E('2026-06'), E('2026-07')], '2026-05'), '2026-08'));
+  it('skips across a year boundary', () =>
+    eq(nextFreeMonth([E('2026-11'), E('2026-12')], '2026-11'), '2027-01'));
+});
+
+describe('copyEntry (Copy button)', () => {
+  it('adds a new line with the same amounts in the next month', () => {
+    const r = copyEntry([E('2026-10', 1, 2, 3, 4)], '2026-10');
+    eq(r.length, 2);
+    eq(r[1], E('2026-11', 1, 2, 3, 4));
+  });
+  it('keeps the original line', () => eq(copyEntry([E('2026-10', 5)], '2026-10')[0], E('2026-10', 5)));
+  it('does not overwrite an existing month', () => {
+    const r = copyEntry([E('2026-10', 1), E('2026-11', 9)], '2026-10');
+    eq(r.find(e => e.month === '2026-11').me, 9);
+    eq(r.find(e => e.month === '2026-12').me, 1);
+  });
+  it('ignores an unknown month', () => eq(copyEntry([E('2026-10')], '1999-01').length, 1));
+  it('does not change the original array', () => {
+    const d = [E('2026-10')];
+    copyEntry(d, '2026-10');
+    eq(d.length, 1);
+  });
+});
+
+describe('upsert (Save button)', () => {
+  it('adds a new month', () => eq(upsert([E('2026-01')], E('2026-02')).length, 2));
+  it('replaces an existing month', () => {
+    const r = upsert([E('2026-01', 1)], E('2026-01', 99));
+    eq(r.length, 1);
+    eq(r[0].me, 99);
+  });
+});
+
+describe('remove (Delete button)', () => {
+  it('removes the month', () => eq(remove([E('2026-01'), E('2026-02')], '2026-01').map(e => e.month), ['2026-02']));
+  it('ignores an unknown month', () => eq(remove([E('2026-01')], '1999-01').length, 1));
+});
+
+describe('parseEntry (form values)', () => {
+  it('parses numbers from text and calculates 10% from the net salary', () =>
+    eq(parseEntry('2026-01', { salary: '100', me: '1.5', wife: '2', son: '3', tenth: '4' }),
+      { month: '2026-01', salary: 100, me: 1.5, wife: 2, son: 3, tenth: 9.5 }));
+  it('treats empty and invalid values as 0', () =>
+    eq(parseEntry('2026-01', { me: '', wife: 'abc', son: undefined, tenth: '5' }),
+      { month: '2026-01', salary: 0, me: 0, wife: 0, son: 0, tenth: 0 }));
+  it('does not allow negative values', () => {
+    const p = parseEntry('2026-01', { salary: '-1', me: '-5', wife: '0', son: '0', tenth: '0' });
+    eq([p.me, p.salary], [0, 0]);
+  });
+});
+
+describe('toCsv (Export CSV)', () => {
+  it('has a header line', () => eq(toCsv([]), 'Month,Salary,Net salary,10%,After 10%,Me,Wife,Son,Total,Income,Spent,Left'));
+  it('has one line per month with salary, total, income, spent and left', () =>
+    eq(toCsv([{ ...E('2026-01', 1, 2, 3, 4), salary: 500, spendings: [S('a', 'me', 3)], incomes: [S('b', 'wife', 20)] }]),
+      'Month,Salary,Net salary,10%,After 10%,Me,Wife,Son,Total,Income,Spent,Left\n2026-01,500,475,4,471,1,2,3,10,20,3,27'));
+  it('works for months without salary or child entries', () =>
+    eq(toCsv([E('2026-01', 1, 2, 3, 4)]), 'Month,Salary,Net salary,10%,After 10%,Me,Wife,Son,Total,Income,Spent,Left\n2026-01,0,0,4,-4,1,2,3,10,0,0,10'));
+});
+
+describe('10% of net salary and After 10%', () => {
+  it('withTenth recalculates 10% from the salary', () =>
+    eq(withTenth([{ ...E('2026-01', 1, 2, 3, 777), salary: 1000 }])[0].tenth, 95));
+  it('withTenth sets 10% to 0 when there is no salary', () => eq(withTenth([E('2026-01', 0, 0, 0, 5)])[0].tenth, 0));
+  it('withTenth keeps everything else and the original data', () => {
+    const d = [{ ...E('2026-01', 1, 2, 3, 4), salary: 100 }];
+    const r = withTenth(d);
+    eq([r[0].me, r[0].salary, d[0].tenth], [1, 100, 4]);
+  });
+  it('PEOPLE are all fields except 10%', () => eq(PEOPLE, ['me', 'wife', 'son']));
+  it('10% is 10% of the net salary', () => eq(tenthFromSalary(1000), 95));
+  it('10% is rounded to two decimals', () => eq(tenthFromSalary(33.33), 3.17));
+  it('10% is 0 for no salary', () => eq(tenthFromSalary(0), 0));
+  it('After 10% = net salary - 10%', () => eq(afterTenthOf({ ...E('2026-01', 0, 0, 0, 95), salary: 1000 }), 855));
+  it('After 10% works for saved months', () => {
+    const e = parseEntry('2026-01', { salary: '1000' });
+    eq([e.tenth, afterTenthOf(e)], [95, 855]);
+  });
+  it('afterTenthTotal adds up all months', () =>
+    eq(afterTenthTotal([{ ...E('2026-01', 0, 0, 0, 95), salary: 1000 }, { ...E('2026-02', 0, 0, 0, 19), salary: 200 }]), 1026));
+});
+
+describe('net salary (salary minus 5%)', () => {
+  it('is 95% of the salary', () => eq(netSalaryOf({ ...E('2026-01'), salary: 1000 }), 950));
+  it('rounds to two decimals', () => eq(netSalaryOf({ ...E('2026-01'), salary: 33.33 }), 31.66));
+  it('is 0 for old data without salary', () => eq(netSalaryOf(E('2026-01')), 0));
+  it('netSalaryTotal adds up all months', () =>
+    eq(netSalaryTotal([{ ...E('2026-01'), salary: 1000 }, { ...E('2026-02'), salary: 200 }, E('2026-03')]), 1140));
+  it('net salary is not part of the saved total', () => eq(sum({ ...E('2026-01', 1, 2, 3, 4), salary: 999 }), 10));
+});
+
+describe('salary', () => {
+  it('salaryOf reads the salary', () => eq(salaryOf({ ...E('2026-01'), salary: 300 }), 300));
+  it('salaryOf is 0 for old data without salary', () => eq(salaryOf(E('2026-01')), 0));
+  it('salaryTotal adds up all months', () =>
+    eq(salaryTotal([{ ...E('2026-01'), salary: 300 }, { ...E('2026-02'), salary: 200 }, E('2026-03')]), 500));
+  it('salary is not part of the saved total', () => eq(sum({ ...E('2026-01', 1, 2, 3, 4), salary: 999 }), 10));
+  it('salary is not part of Left', () => eq(leftOf({ ...E('2026-01', 1, 2, 3, 4), salary: 999 }), 10));
+  it('Copy keeps the salary', () =>
+    eq(copyEntry([{ ...E('2026-01'), salary: 300 }], '2026-01')[1].salary, 300));
+  it('backup accepts salary and old data without it', () => {
+    eq(isValidBackup([{ ...E('2026-01'), salary: 300 }]), true);
+    eq(isValidBackup([E('2026-01')]), true);
+  });
+  it('backup rejects a text salary', () => eq(isValidBackup([{ ...E('2026-01'), salary: '300' }]), false));
+});
+
+describe('setSalary (My salary page)', () => {
+  it('sets the salary and recalculates 10% of an existing month', () => {
+    const r = setSalary([E('2026-01', 1, 2, 3, 4)], '2026-01', '1000');
+    eq([r[0].salary, r[0].tenth, r[0].me], [1000, 95, 1]);
+  });
+  it('creates a missing month with zero savings', () =>
+    eq(setSalary([], '2026-02', '200'), [{ month: '2026-02', salary: 200, me: 0, wife: 0, son: 0, tenth: 19 }]));
+  it('keeps other months unchanged', () => eq(setSalary([E('2026-01', 5), E('2026-02')], '2026-02', '100')[0], E('2026-01', 5)));
+  it('treats invalid and negative values as 0', () => {
+    eq(setSalary([E('2026-01')], '2026-01', 'abc')[0].salary, 0);
+    eq(setSalary([E('2026-01')], '2026-01', '-5')[0].salary, 0);
+  });
+  it('keeps income and spending lines', () =>
+    eq(incomesOf(setSalary([{ ...E('2026-01'), incomes: [S('a', 'me', 5)] }], '2026-01', '100')[0]).length, 1));
+  it('does not change the original data', () => {
+    const d = [E('2026-01')];
+    setSalary(d, '2026-01', '100');
+    eq(d[0].salary, undefined);
+  });
+});
+
+describe('monthly pay in UAH and USD rate', () => {
+  it('has the two fixed amounts', () => eq(MONTHLY_PAY_UAH, [13500, 4500]));
+  it('uses the last day of a past month', () => eq(rateDate('2026-02', new Date(2026, 5, 10)), '20260228'));
+  it('handles leap years', () => eq(rateDate('2024-02', new Date(2026, 5, 10)), '20240229'));
+  it('uses today for the current month', () => eq(rateDate('2026-06', new Date(2026, 5, 10)), '20260610'));
+  it('uses today for a future month', () => eq(rateDate('2026-09', new Date(2026, 5, 10)), '20260610'));
+  it('prevDate steps back one day', () => eq(prevDate('20260301'), '20260228'));
+  it('prevDate crosses a year', () => eq(prevDate('20260101'), '20251231'));
+  it('converts UAH to USD rounded to two decimals', () => eq(uahToUsd(13500, 44.8624), 300.92));
+  it('payOf uses the defaults when a month has no own pay', () => eq(payOf(E('2026-01')), [13500, 4500]));
+  it('setMonthlyPay stores the amounts of one month', () => {
+    const r = setMonthlyPay([E('2026-01'), E('2026-02')], '2026-02', ['15000', '5000.5']);
+    eq([payOf(r[0]), payOf(r[1])], [[13500, 4500], [15000, 5000.5]]);
+  });
+  it('setMonthlyPay treats invalid and negative values as 0', () =>
+    eq(payOf(setMonthlyPay([E('2026-01')], '2026-01', ['abc', '-5'])[0]), [0, 0]));
+  it('Save on the main page keeps the monthly pay', () =>
+    eq(payOf(upsert([{ ...E('2026-01'), monthlyPay: [1, 2] }], E('2026-01', 9))[0]), [1, 2]));
+  it('Copy keeps the monthly pay', () =>
+    eq(payOf(copyEntry([{ ...E('2026-01'), monthlyPay: [1, 2] }], '2026-01')[1]), [1, 2]));
+  it('backup accepts a valid monthly pay and rejects a bad one', () => {
+    eq(isValidBackup([{ ...E('2026-01'), monthlyPay: [1, 2] }]), true);
+    eq(isValidBackup([{ ...E('2026-01'), monthlyPay: ['1'] }]), false);
+    eq(isValidBackup([{ ...E('2026-01'), monthlyPay: 5 }]), false);
+  });
+});
+
+describe('per-person amounts in details (me 600, wife 275, son 100)', () => {
+  it('defaults to 600, 275 and 100', () => eq(allocationOf(E('2026-01')), { me: 600, wife: 275, son: 100 }));
+  it('setAllocation changes one month only', () => {
+    const r = setAllocation([E('2026-01'), E('2026-02')], '2026-02', { me: '700', wife: '300', son: '50.5' });
+    eq([allocationOf(r[0]), allocationOf(r[1])], [{ me: 600, wife: 275, son: 100 }, { me: 700, wife: 300, son: 50.5 }]);
+  });
+  it('treats invalid and negative values as 0', () =>
+    eq(allocationOf(setAllocation([E('2026-01')], '2026-01', { me: 'x', wife: '-1', son: '' })[0]), { me: 0, wife: 0, son: 0 }));
+  it('Save on the main page keeps the amounts', () =>
+    eq(allocationOf(upsert([{ ...E('2026-01'), allocation: { me: 1, wife: 2, son: 3 } }], E('2026-01', 9))[0]), { me: 1, wife: 2, son: 3 }));
+  it('backup accepts valid amounts and rejects bad ones', () => {
+    eq(isValidBackup([{ ...E('2026-01'), allocation: { me: 1, wife: 2, son: 3 } }]), true);
+    eq(isValidBackup([{ ...E('2026-01'), allocation: { me: 1 } }]), false);
+    eq(isValidBackup([{ ...E('2026-01'), allocation: null }]), false);
+  });
+});
+
+describe('salaryLeftOf (Net salary column)', () => {
+  const m = { ...E('2026-01'), salary: 1000 };
+  it('= salary - 5% - 10% - saving - per-person amounts - monthly pay in USD', () => eq(salaryLeftOf(m, 45), -1520));
+  it('uses the changed per-person amounts', () =>
+    eq(salaryLeftOf(setAllocation([m], '2026-01', { me: 100, wife: 0, son: 0 })[0], 45), -645));
+  it('uses the changed monthly pay', () =>
+    eq(salaryLeftOf(setMonthlyPay([m], '2026-01', [0, 0])[0], 45), -1120));
+  it('uses the changed monthly saving', () =>
+    eq(salaryLeftOf(setMonthlySaving([m], '2026-01', '0')[0], 45), -520));
+  it('is null without a rate', () => eq(salaryLeftOf(m, undefined), null));
+});
+
+describe('monthly saving (default 1000)', () => {
+  it('defaults to 1000', () => eq(savingOf(E('2026-01')), 1000));
+  it('setMonthlySaving changes one month only', () => {
+    const r = setMonthlySaving([E('2026-01'), E('2026-02')], '2026-02', '1500.5');
+    eq([savingOf(r[0]), savingOf(r[1])], [1000, 1500.5]);
+  });
+  it('can be set to 0 and treats invalid values as 0', () => {
+    eq(savingOf(setMonthlySaving([E('2026-01')], '2026-01', '0')[0]), 0);
+    eq(savingOf(setMonthlySaving([E('2026-01')], '2026-01', 'abc')[0]), 0);
+  });
+  it('Save on the main page keeps it', () =>
+    eq(savingOf(upsert([{ ...E('2026-01'), monthlySaving: 0 }], E('2026-01', 9))[0]), 0));
+  it('backup accepts a number and rejects text', () => {
+    eq(isValidBackup([{ ...E('2026-01'), monthlySaving: 500 }]), true);
+    eq(isValidBackup([{ ...E('2026-01'), monthlySaving: '500' }]), false);
+  });
+});
+
+describe('GitHub config helpers', () => {
+  const c = { owner: 'me', repo: 'my-data', branch: 'main', path: 'data/savings.json', token: 'x' };
+  it('accepts a full config', () => eq(isValidGithubConfig(c), true));
+  it('rejects a missing or blank field', () => {
+    eq(isValidGithubConfig({ ...c, token: '' }), false);
+    eq(isValidGithubConfig({ ...c, branch: '  ' }), false);
+    eq(isValidGithubConfig(null), false);
+  });
+  it('rejects owner or repo with unsafe characters', () => {
+    eq(isValidGithubConfig({ ...c, owner: 'a/b' }), false);
+    eq(isValidGithubConfig({ ...c, repo: '../x' }), false);
+  });
+  it('rejects paths that leave the repository', () => {
+    eq(isValidGithubConfig({ ...c, path: '/savings.json' }), false);
+    eq(isValidGithubConfig({ ...c, path: '../savings.json' }), false);
+    eq(isValidGithubConfig({ ...c, path: 'a//b.json' }), false);
+  });
+  it('builds the contents URL', () =>
+    eq(githubUrl(c), 'https://api.github.com/repos/me/my-data/contents/data/savings.json'));
+  it('encodes special characters in the path', () =>
+    eq(githubUrl({ ...c, path: 'my data/a#b.json' }), 'https://api.github.com/repos/me/my-data/contents/my%20data/a%23b.json'));
+  it('base64 round trip keeps unicode', () => eq(decodeContent(encodeContent('[{"note":"café ₴"}]')), '[{"note":"café ₴"}]'));
+  it('decodes base64 with line breaks like GitHub sends', () => eq(decodeContent('W1\n0='), '[]'));
+  it('encodes plain text', () => eq(encodeContent('[]'), 'W10='));
+});
+
+describe('esc', () => {
+  it('escapes HTML characters', () => eq(esc('<b>"a" & \'b\'</b>'), '&lt;b&gt;&quot;a&quot; &amp; &#39;b&#39;&lt;/b&gt;'));
+  it('leaves plain text unchanged', () => eq(esc('milk 2L'), 'milk 2L'));
+});
+
+describe('spendingsOf / spentOf / spentTotals', () => {
+  const m = { ...E('2026-01', 100, 100, 100, 100), spendings: [S('a', 'me', 10), S('b', 'me', 5), S('c', 'son', 20)] };
+  it('returns an empty list when there are no spendings', () => eq(spendingsOf(E('2026-01')), []));
+  it('sums all spending of a month', () => eq(spentOf(m), 35));
+  it('sums spending of one person', () => eq(spentOf(m, 'me'), 15));
+  it('is 0 for a person with no spending', () => eq(spentOf(m, 'wife'), 0));
+  it('is 0 for a month without spendings', () => eq(spentOf(E('2026-01')), 0));
+  it('totals spending across months', () =>
+    eq(spentTotals([m, { ...E('2026-02'), spendings: [S('d', 'wife', 7)] }]),
+      { me: 15, wife: 7, son: 20, tenth: 0, all: 42 }));
+  it('totals are zero for empty data', () => eq(spentTotals([]), { me: 0, wife: 0, son: 0, tenth: 0, all: 0 }));
+});
+
+describe('parseSpending (Add spending form)', () => {
+  it('creates a spending with an id', () => {
+    const s = parseSpending({ who: 'wife', note: ' milk ', amount: '12.5' });
+    eq([s.who, s.note, s.amount, typeof s.id, s.id.length > 0], ['wife', 'milk', 12.5, 'string', true]);
+  });
+  it('gives each spending a different id', () =>
+    eq(parseSpending({ who: 'me', amount: '1' }).id === parseSpending({ who: 'me', amount: '1' }).id, false));
+  it('allows an empty note', () => eq(parseSpending({ who: 'me', amount: '1' }).note, ''));
+  it('rejects zero, negative and invalid amounts', () => {
+    eq(parseSpending({ who: 'me', amount: '0' }), null);
+    eq(parseSpending({ who: 'me', amount: '-3' }), null);
+    eq(parseSpending({ who: 'me', amount: 'abc' }), null);
+    eq(parseSpending({ who: 'me', amount: '' }), null);
+  });
+  it('rejects an unknown person', () => eq(parseSpending({ who: 'dog', amount: '5' }), null));
+});
+
+describe('addSpending / removeSpending', () => {
+  it('adds a spending to the right month only', () => {
+    const r = addSpending([E('2026-01'), E('2026-02')], '2026-02', S('a', 'me', 5));
+    eq(spendingsOf(r[0]), []);
+    eq(spendingsOf(r[1]), [S('a', 'me', 5)]);
+  });
+  it('keeps earlier spendings', () => {
+    let r = addSpending([E('2026-01')], '2026-01', S('a', 'me', 5));
+    r = addSpending(r, '2026-01', S('b', 'son', 6));
+    eq(spendingsOf(r[0]).map(s => s.id), ['a', 'b']);
+  });
+  it('does not change the original data', () => {
+    const d = [E('2026-01')];
+    addSpending(d, '2026-01', S('a', 'me', 5));
+    eq(spendingsOf(d[0]), []);
+  });
+  it('removes a spending by id', () => {
+    const d = [{ ...E('2026-01'), spendings: [S('a', 'me', 5), S('b', 'me', 6)] }];
+    eq(spendingsOf(removeSpending(d, '2026-01', 'a')[0]).map(s => s.id), ['b']);
+  });
+  it('ignores an unknown id', () => {
+    const d = [{ ...E('2026-01'), spendings: [S('a', 'me', 5)] }];
+    eq(spendingsOf(removeSpending(d, '2026-01', 'zzz')[0]).length, 1);
+  });
+});
+
+describe('spendings with other functions', () => {
+  it('Save on an existing month keeps its spendings', () => {
+    const d = [{ ...E('2026-01', 1), spendings: [S('a', 'me', 5)] }];
+    const r = upsert(d, E('2026-01', 99));
+    eq(r[0].me, 99);
+    eq(spendingsOf(r[0]).length, 1);
+  });
+  it('Copy does not copy spendings', () => {
+    const d = [{ ...E('2026-01', 1), spendings: [S('a', 'me', 5)] }];
+    const r = copyEntry(d, '2026-01');
+    eq(spendingsOf(r[1]), []);
+    eq(spendingsOf(r[0]).length, 1);
+  });
+  it('Delete month removes its spendings too', () =>
+    eq(remove([{ ...E('2026-01'), spendings: [S('a', 'me', 5)] }], '2026-01'), []));
+  it('backup accepts data with valid spendings', () =>
+    eq(isValidBackup([{ ...E('2026-01'), spendings: [S('a', 'me', 5, 'x')] }]), true));
+  it('backup rejects a spending with an unknown person', () =>
+    eq(isValidBackup([{ ...E('2026-01'), spendings: [S('a', 'dog', 5)] }]), false));
+  it('backup rejects spendings that are not a list', () =>
+    eq(isValidBackup([{ ...E('2026-01'), spendings: 'x' }]), false));
+  it('backup rejects a spending with a text amount', () =>
+    eq(isValidBackup([{ ...E('2026-01'), spendings: [S('a', 'me', '5')] }]), false));
+});
+
+describe('isValidBackup (Restore backup)', () => {
+  it('accepts valid data', () => eq(isValidBackup([E('2026-01', 1, 2, 3, 4)]), true));
+  it('accepts an empty list', () => eq(isValidBackup([]), true));
+  it('rejects non-arrays', () => eq(isValidBackup({ month: '2026-01' }), false));
+  it('rejects null', () => eq(isValidBackup(null), false));
+  it('rejects a bad month format', () => eq(isValidBackup([E('2026-1')]), false));
+  it('rejects missing fields', () => eq(isValidBackup([{ month: '2026-01', me: 1 }]), false));
+  it('rejects text amounts', () => eq(isValidBackup([{ ...E('2026-01'), me: '5' }]), false));
+  it('rejects null entries', () => eq(isValidBackup([null]), false));
+  it('accepts what Backup produces', () => {
+    const d = [E('2026-01', 1.5, 2, 3, 4)];
+    eq(isValidBackup(JSON.parse(JSON.stringify(d))), true);
+  });
+});
+
+describe('income (same logic as spending)', () => {
+  const m = { ...E('2026-01', 100, 50, 0, 0), incomes: [S('a', 'me', 10), S('b', 'me', 5), S('c', 'son', 20)], spendings: [S('d', 'me', 30)] };
+  it('returns an empty list when there is no income', () => eq(incomesOf(E('2026-01')), []));
+  it('sums all income of a month', () => eq(incomeOf(m), 35));
+  it('sums income of one person', () => eq(incomeOf(m, 'me'), 15));
+  it('totals income across months', () =>
+    eq(incomeTotals([m, { ...E('2026-02'), incomes: [S('e', 'wife', 7)] }]), { me: 15, wife: 7, son: 20, tenth: 0, all: 42 }));
+  it('income totals are zero for empty data', () => eq(incomeTotals([]), { me: 0, wife: 0, son: 0, tenth: 0, all: 0 }));
+  it('left = saved + income - spent', () => eq(leftOf(m), 150 + 35 - 30));
+  it('left for one person', () => {
+    eq(leftOf(m, 'me'), 100 + 15 - 30);
+    eq(leftOf(m, 'wife'), 50);
+    eq(leftOf(m, 'son'), 20);
+  });
+  it('left works without child entries', () => eq(leftOf(E('2026-01', 1, 2, 3, 4)), 10));
+  it('adds income to the right month and kind only', () => {
+    const r = addItem([E('2026-01'), E('2026-02')], '2026-02', 'incomes', S('a', 'me', 5));
+    eq(incomesOf(r[0]), []);
+    eq(incomesOf(r[1]), [S('a', 'me', 5)]);
+    eq(spendingsOf(r[1]), []);
+  });
+  it('removes income by id without touching spending', () => {
+    const d = [{ ...E('2026-01'), incomes: [S('a', 'me', 5), S('b', 'me', 6)], spendings: [S('a', 'me', 1)] }];
+    const r = removeItem(d, '2026-01', 'incomes', 'a');
+    eq(incomesOf(r[0]).map(s => s.id), ['b']);
+    eq(spendingsOf(r[0]).length, 1);
+  });
+  it('Save keeps income', () => {
+    const r = upsert([{ ...E('2026-01', 1), incomes: [S('a', 'me', 5)] }], E('2026-01', 99));
+    eq(r[0].me, 99);
+    eq(incomesOf(r[0]).length, 1);
+  });
+  it('Copy does not copy income', () => {
+    const r = copyEntry([{ ...E('2026-01', 1), incomes: [S('a', 'me', 5)] }], '2026-01');
+    eq(incomesOf(r[1]), []);
+    eq(incomesOf(r[0]).length, 1);
+  });
+  it('backup accepts valid income', () => eq(isValidBackup([{ ...E('2026-01'), incomes: [S('a', 'me', 5)] }]), true));
+  it('backup rejects bad income', () => {
+    eq(isValidBackup([{ ...E('2026-01'), incomes: 'x' }]), false);
+    eq(isValidBackup([{ ...E('2026-01'), incomes: [S('a', 'dog', 5)] }]), false);
+  });
+});
+
+const s = document.getElementById('summary');
+s.textContent = failed ? `${failed} failed, ${passed} passed` : `All ${passed} tests passed`;
+s.className = failed ? 'fail' : 'ok';
+</script>
+</body>
+</html>

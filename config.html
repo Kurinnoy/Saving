@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Config</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, sans-serif; margin: 0; background: #f3f5f9; color: #222; }
+  main { max-width: 900px; margin: 0 auto; padding: 20px; }
+  h1 { margin-top: 0; }
+  nav { margin-bottom: 16px; display: flex; gap: 16px; }
+  nav a { color: #2f6fed; text-decoration: none; font-weight: bold; }
+  nav a.current { color: #222; }
+  .card { background: #fff; border-radius: 10px; padding: 16px; margin-bottom: 20px; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
+  form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; align-items: end; }
+  label { font-size: 13px; color: #555; display: block; }
+  input { width: 100%; padding: 8px; font-size: 16px; border: 1px solid #bbb; border-radius: 6px; }
+  button { padding: 9px 14px; font-size: 15px; border: 0; border-radius: 6px; background: #2f6fed; color: #fff; cursor: pointer; }
+  button.secondary { background: #777; }
+  button:disabled { opacity: .6; cursor: default; }
+  .tools { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .note { font-size: 12px; color: #777; }
+  #status { margin-top: 12px; padding: 8px 12px; border-radius: 6px; display: none; }
+  #status.ok { display: block; background: #e3f6e8; color: #1a7a35; }
+  #status.err { display: block; background: #fde4e4; color: #b00020; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Config</h1>
+  <nav><a href="index.html">Family Savings</a><a href="salary.html">My salary</a><a href="config.html" class="current">Config</a></nav>
+
+  <div class="card">
+    <h2>GitHub</h2>
+    <form id="form" autocomplete="off">
+      <div><label for="owner">Owner</label><input id="owner" required></div>
+      <div><label for="repo">Repository</label><input id="repo" required></div>
+      <div><label for="branch">Branch</label><input id="branch" value="main" required></div>
+      <div><label for="path">File path</label><input id="path" value="savings-data.json" required></div>
+      <div><label for="token">Personal access token</label><input id="token" type="password" required></div>
+    </form>
+    <div class="tools">
+      <button type="button" id="saveCfg" class="secondary">Save settings</button>
+      <button type="button" id="push">Save data to GitHub</button>
+      <button type="button" id="pull">Load data from GitHub</button>
+      <button type="button" id="forget" class="secondary">Forget token</button>
+    </div>
+    <div id="status" role="status"></div>
+    <p class="note">Use a fine-grained token limited to this one repository with "Contents: Read and write". The token and settings are stored in this browser only; anyone using this browser can read them.</p>
+  </div>
+</main>
+
+<script src="logic.js"></script>
+<script>
+const KEY = 'familySavings';
+const CFG_KEY = 'githubConfig';
+const { isValidGithubConfig, githubUrl, encodeContent, decodeContent, isValidBackup } = Savings;
+const $ = id => document.getElementById(id);
+const FIELDS = ['owner', 'repo', 'branch', 'path', 'token'];
+
+const saved = JSON.parse(localStorage.getItem(CFG_KEY) || '{}');
+FIELDS.forEach(f => { if (typeof saved[f] === 'string') $(f).value = saved[f]; });
+
+const readConfig = () => Object.fromEntries(FIELDS.map(f => [f, $(f).value.trim()]));
+
+function status(text, ok) {
+  const s = $('status');
+  s.textContent = text;
+  s.className = ok ? 'ok' : 'err';
+}
+
+function validConfig() {
+  const c = readConfig();
+  if (!isValidGithubConfig(c)) {
+    status('Fill in all fields. Owner and repository may only use letters, digits, "-", "_" and "."; the path must stay inside the repository.', false);
+    return null;
+  }
+  localStorage.setItem(CFG_KEY, JSON.stringify(c));
+  return c;
+}
+
+const headers = c => ({
+  Accept: 'application/vnd.github+json',
+  Authorization: `Bearer ${c.token}`,
+  'X-GitHub-Api-Version': '2022-11-28'
+});
+
+async function fail(res) {
+  let msg = '';
+  try { msg = (await res.json()).message; } catch { /* no body */ }
+  throw new Error(`GitHub ${res.status}${msg ? ': ' + msg : ''}`);
+}
+
+// Returns the current file ({ sha, content }) or null when it does not exist yet.
+async function getFile(c) {
+  const res = await fetch(`${githubUrl(c)}?ref=${encodeURIComponent(c.branch)}`, { headers: headers(c), cache: 'no-store' });
+  if (res.status === 404) return null;
+  if (!res.ok) await fail(res);
+  return res.json();
+}
+
+async function run(work) {
+  const buttons = document.querySelectorAll('.tools button');
+  buttons.forEach(b => b.disabled = true);
+  try {
+    await work();
+  } catch (err) {
+    status(err.message || 'Request failed.', false);
+  } finally {
+    buttons.forEach(b => b.disabled = false);
+  }
+}
+
+$('form').addEventListener('submit', ev => ev.preventDefault());
+
+$('saveCfg').addEventListener('click', () => {
+  if (validConfig()) status('Settings saved.', true);
+});
+
+$('push').addEventListener('click', () => {
+  const c = validConfig();
+  if (!c) return;
+  run(async () => {
+    const existing = await getFile(c);
+    const text = JSON.stringify(JSON.parse(localStorage.getItem(KEY) || '[]'), null, 2);
+    const body = { message: `Update savings data ${new Date().toISOString()}`, content: encodeContent(text), branch: c.branch };
+    if (existing) body.sha = existing.sha;
+    const res = await fetch(githubUrl(c), { method: 'PUT', headers: { ...headers(c), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!res.ok) await fail(res);
+    status(`Data saved to ${c.owner}/${c.repo}/${c.path}.`, true);
+  });
+});
+
+$('pull').addEventListener('click', () => {
+  const c = validConfig();
+  if (!c) return;
+  run(async () => {
+    const file = await getFile(c);
+    if (!file || !file.content) throw new Error('File not found in the repository.');
+    const parsed = JSON.parse(decodeContent(file.content));
+    if (!isValidBackup(parsed)) throw new Error('The file is not valid savings data.');
+    if (!confirm('Replace current data with the data from GitHub?')) return;
+    localStorage.setItem(KEY, JSON.stringify(parsed));
+    status(`Loaded ${parsed.length} month(s) from GitHub.`, true);
+  });
+});
+
+$('forget').addEventListener('click', () => {
+  $('token').value = '';
+  const c = JSON.parse(localStorage.getItem(CFG_KEY) || '{}');
+  delete c.token;
+  localStorage.setItem(CFG_KEY, JSON.stringify(c));
+  status('Token removed from this browser.', true);
+});
+</script>
+</body>
+</html>

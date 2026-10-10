@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My salary</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, sans-serif; margin: 0; background: #f3f5f9; color: #222; }
+  main { max-width: 900px; margin: 0 auto; padding: 20px; }
+  h1 { margin-top: 0; }
+  nav { margin-bottom: 16px; display: flex; gap: 16px; }
+  nav a { color: #2f6fed; text-decoration: none; font-weight: bold; }
+  nav a.current { color: #222; }
+  .card { background: #fff; border-radius: 10px; padding: 16px; margin-bottom: 20px; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
+  form { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; align-items: end; }
+  label { font-size: 13px; color: #555; display: block; }
+  input { width: 100%; padding: 8px; font-size: 16px; border: 1px solid #bbb; border-radius: 6px; }
+  button { padding: 9px 14px; font-size: 15px; border: 0; border-radius: 6px; background: #2f6fed; color: #fff; cursor: pointer; }
+  button.secondary { background: #777; }
+  button.danger { background: #d33; padding: 4px 8px; font-size: 13px; }
+  button.edit { background: #888; padding: 4px 8px; font-size: 13px; }
+  button.copy { background: #2f6fed; padding: 4px 8px; font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 8px; text-align: right; border-bottom: 1px solid #e3e3e3; }
+  th:first-child, td:first-child { text-align: left; }
+  #foot td { font-weight: bold; }
+  .scroll { overflow-x: auto; }
+  .note { font-size: 12px; color: #777; }
+  .neg { color: #d33; }
+  button.details { background: #e08a00; padding: 4px 8px; font-size: 13px; }
+  tr.child td { text-align: left; background: #fafafa; }
+  .calc { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px 16px; }
+  .calc div { display: flex; flex-direction: column; gap: 4px; }
+  .calc span { color: #555; font-size: 13px; }
+  .calc strong { font-weight: 600; }
+  .calc form { display: contents; }
+  .calc input { width: 100%; padding: 4px 6px; font-size: 14px; }
+  .calc .save { grid-column: 1 / -1; align-items: flex-start; }
+  @media (max-width: 600px) { .calc { grid-template-columns: repeat(2, 1fr); } }
+</style>
+</head>
+<body>
+<main>
+  <h1>My salary</h1>
+  <nav><a href="index.html">Family Savings</a><a href="salary.html" class="current">My salary</a><a href="config.html">Config</a></nav>
+
+  <div class="card">
+    <h2 id="formTitle">Add salary</h2>
+    <form id="form">
+      <div><label for="month">Month</label><input type="month" id="month" required></div>
+      <div><label for="salary">My salary</label><input type="number" id="salary" min="0" step="0.01" value="0"></div>
+      <div>
+        <button type="submit">Save</button>
+        <button type="button" class="secondary" id="cancel" hidden>Cancel</button>
+      </div>
+    </form>
+    <p class="note">Saving a month that already exists replaces its salary. Net salary is salary minus 5%; 10% is taken from the net salary.</p>
+  </div>
+
+  <div class="card">
+    <h2>History</h2>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr id="foot"></tr>
+          <tr><th>Month</th><th>Salary</th><th>Net salary</th><th></th></tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script src="logic.js"></script>
+<script>
+const KEY = 'familySavings';
+const { fmt, PEOPLE, copyEntry, salaryOf, salaryTotal, netSalaryOf, withTenth, sortDesc, setSalary, MONTHLY_PAY_UAH, payOf, setMonthlyPay, allocationOf, setAllocation, savingOf, setMonthlySaving, salaryLeftOf, rateDate, prevDate, uahToUsd } = Savings;
+const RATES_KEY = 'uahUsdRates';
+const LABELS = { me: 'me', wife: 'wife', son: 'son' };
+const rates = JSON.parse(localStorage.getItem(RATES_KEY) || '{}');
+const pending = new Set();
+const $ = id => document.getElementById(id);
+const open = new Set();
+let data = JSON.parse(localStorage.getItem(KEY) || '[]');
+
+const persist = () => localStorage.setItem(KEY, JSON.stringify(data));
+
+function resetForm() {
+  $('form').reset();
+  $('month').value = new Date().toISOString().slice(0, 7);
+  $('formTitle').textContent = 'Add salary';
+  $('cancel').hidden = true;
+}
+
+function childHtml(e) {
+  const rate = rates[e.month];
+  if (rate === undefined) loadRate(e.month);
+  const usd = uah => rate ? '$' + fmt(uahToUsd(uah, rate)) : rate === null ? 'rate unavailable' : 'loading...';
+  const pay = payOf(e).map(uah => `<div><span>Monthly pay <input name="pay" type="number" min="0" step="0.01" value="${uah}"> UAH</span><strong>${usd(uah)}</strong></div>`).join('');
+  const alloc = allocationOf(e);
+  const forWho = PEOPLE.map(f => `<div><span>For ${LABELS[f]} <input name="${f}" type="number" min="0" step="0.01" value="${alloc[f]}"></span></div>`).join('');
+  return `<tr class="child"><td colspan="4"><div class="calc">
+    <div><span>5%</span><strong>${fmt(salaryOf(e) - netSalaryOf(e))}</strong></div>
+    <div><span>10%</span><strong>${fmt(e.tenth)}</strong></div>
+    <form class="payForm" data-month="${e.month}"><div><span>Monthly saving $ <input name="saving" type="number" min="0" step="0.01" value="${savingOf(e)}"></span></div>${forWho}${pay}<div class="save"><button type="submit">Save</button></div></form>
+    ${rate ? `<div><span>Rate</span><strong>1 USD = ${rate} UAH</strong></div>` : ''}
+  </div></td></tr>`;
+}
+
+// NBU official rate for the month's date; looks back a few days when that date has none.
+async function fetchRate(month) {
+  let date = rateDate(month);
+  for (let i = 0; i < 5; i++) {
+    const res = await fetch(`https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?valcode=USD&date=${date}&json`);
+    if (!res.ok) throw new Error(res.status);
+    const [row] = await res.json();
+    if (row && row.rate > 0) return row.rate;
+    date = prevDate(date);
+  }
+  throw new Error('no rate');
+}
+
+async function loadRate(month) {
+  if (pending.has(month)) return;
+  pending.add(month);
+  try {
+    rates[month] = await fetchRate(month);
+    // Only closed months have a final rate worth keeping.
+    const current = new Date().toISOString().slice(0, 7);
+    const closed = Object.entries(rates).filter(([m, r]) => r && m < current);
+    localStorage.setItem(RATES_KEY, JSON.stringify(Object.fromEntries(closed)));
+  } catch {
+    rates[month] = null;
+  }
+  pending.delete(month);
+  render();
+}
+
+function leftHtml(e) {
+  const rate = rates[e.month];
+  if (rate === undefined) loadRate(e.month);
+  if (!rate) return rate === null ? 'rate unavailable' : 'loading...';
+  const left = salaryLeftOf(e, rate);
+  return `<span class="${left < 0 ? 'neg' : ''}">${fmt(left)}</span>`;
+}
+
+function render() {
+  data = withTenth(sortDesc(data));
+  const rows = data.filter(e => salaryOf(e) > 0);
+
+  $('rows').innerHTML = rows.map(e => `
+    <tr>
+      <td>${e.month}</td>
+      <td>${fmt(salaryOf(e))}</td>
+      <td>${leftHtml(e)}</td>
+      <td>
+        <button class="details" data-details="${e.month}">Details</button>
+        <button class="copy" data-copy="${e.month}">Copy</button>
+        <button class="edit" data-edit="${e.month}">Edit</button>
+        <button class="danger" data-clear="${e.month}">Clear</button>
+      </td>
+    </tr>${open.has(e.month) ? childHtml(e) : ''}`).join('') || '<tr><td colspan="4">No salary yet</td></tr>';
+
+  $('foot').innerHTML = rows.length ? `<td>Total</td><td>${fmt(salaryTotal(rows))}</td><td></td><td></td>` : '';
+}
+
+$('form').addEventListener('submit', ev => {
+  ev.preventDefault();
+  data = setSalary(data, $('month').value, $('salary').value);
+  persist();
+  render();
+  resetForm();
+});
+
+$('cancel').addEventListener('click', resetForm);
+
+$('rows').addEventListener('submit', ev => {
+  ev.preventDefault();
+  const f = ev.target;
+  const amounts = [...f.querySelectorAll('input[name=pay]')].map(i => i.value);
+  const alloc = Object.fromEntries(PEOPLE.map(p => [p, f.elements[p].value]));
+  data = setMonthlySaving(setAllocation(setMonthlyPay(data, f.dataset.month, amounts), f.dataset.month, alloc), f.dataset.month, f.elements.saving.value);
+  persist();
+  render();
+});
+
+$('rows').addEventListener('click', ev => {
+  const { edit, clear, details, copy } = ev.target.dataset;
+  if (copy) {
+    data = copyEntry(data, copy);
+    persist();
+    render();
+  } else if (details) {
+    open.has(details) ? open.delete(details) : open.add(details);
+    render();
+  } else if (edit) {
+    const e = data.find(x => x.month === edit);
+    $('month').value = e.month;
+    $('salary').value = salaryOf(e);
+    $('formTitle').textContent = 'Edit salary';
+    $('cancel').hidden = false;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  } else if (clear && confirm(`Clear salary of ${clear}?`)) {
+    data = setSalary(data, clear, 0);
+    persist();
+    render();
+  }
+});
+
+resetForm();
+render();
+</script>
+</body>
+</html>

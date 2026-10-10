@@ -1,0 +1,200 @@
+const Savings = (() => {
+  const FIELDS = ['me', 'wife', 'son', 'tenth'];
+
+  const fmt = n => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const sum = e => FIELDS.reduce((s, f) => s + e[f], 0);
+
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  // Income and spending are child entries of a month; older data has none.
+  const KINDS = ['incomes', 'spendings'];
+  const itemsOf = (e, kind) => e[kind] || [];
+  const spendingsOf = e => itemsOf(e, 'spendings');
+  const incomesOf = e => itemsOf(e, 'incomes');
+
+  const sumItems = (e, kind, who) => itemsOf(e, kind)
+    .filter(s => !who || s.who === who)
+    .reduce((s, x) => s + x.amount, 0);
+  const spentOf = (e, who) => sumItems(e, 'spendings', who);
+  const incomeOf = (e, who) => sumItems(e, 'incomes', who);
+
+  const itemTotals = (data, kind) => {
+    const t = Object.fromEntries(FIELDS.map(f => [f, data.reduce((s, e) => s + sumItems(e, kind, f), 0)]));
+    t.all = FIELDS.reduce((s, f) => s + t[f], 0);
+    return t;
+  };
+  const spentTotals = data => itemTotals(data, 'spendings');
+  const incomeTotals = data => itemTotals(data, 'incomes');
+
+  // Left = saved + income - spent.
+  const leftOf = (e, who) => (who ? e[who] : sum(e)) + incomeOf(e, who) - spentOf(e, who);
+
+  const totals = data => {
+    const t = Object.fromEntries(FIELDS.map(f => [f, data.reduce((s, e) => s + e[f], 0)]));
+    t.all = FIELDS.reduce((s, f) => s + t[f], 0);
+    return t;
+  };
+
+  const sortDesc = data => [...data].sort((a, b) => b.month.localeCompare(a.month));
+
+  // Months are unique, so a copy goes to the next month that is still free.
+  const nextFreeMonth = (data, month) => {
+    let [y, m] = month.split('-').map(Number);
+    let next;
+    do {
+      m++;
+      if (m > 12) { m = 1; y++; }
+      next = `${y}-${String(m).padStart(2, '0')}`;
+    } while (data.some(x => x.month === next));
+    return next;
+  };
+
+  const copyEntry = (data, month) => {
+    const e = data.find(x => x.month === month);
+    if (!e) return data;
+    const { spendings, incomes, ...saved } = e;
+    return [...data, { ...saved, month: nextFreeMonth(data, month) }];
+  };
+
+  // Saving a month again keeps its income and spending lines.
+  const upsert = (data, entry) => {
+    const old = data.find(e => e.month === entry.month) || {};
+    const merged = { ...entry };
+    KINDS.forEach(k => { if (old[k]) merged[k] = old[k]; });
+    if (old.monthlyPay) merged.monthlyPay = old.monthlyPay;
+    if (old.allocation) merged.allocation = old.allocation;
+    if (old.monthlySaving !== undefined) merged.monthlySaving = old.monthlySaving;
+    return [...data.filter(e => e.month !== entry.month), merged];
+  };
+
+  const remove = (data, month) => data.filter(e => e.month !== month);
+
+  // 10% is calculated from the net salary when a month is saved; the other amounts are typed in.
+  const PEOPLE = FIELDS.filter(f => f !== 'tenth');
+
+  const parseEntry = (month, values) => {
+    const entry = { month, salary: Math.max(0, parseFloat(values.salary) || 0) };
+    PEOPLE.forEach(f => entry[f] = Math.max(0, parseFloat(values[f]) || 0));
+    entry.tenth = tenthFromSalary(entry.salary);
+    return entry;
+  };
+
+  // Salary is shown for reference only and is not part of the saved total.
+  const salaryOf = e => e.salary || 0;
+  const salaryTotal = data => data.reduce((s, e) => s + salaryOf(e), 0);
+
+  const TAX_RATE = 0.05;
+  const TENTH_RATE = 0.1;
+  const round2 = n => Math.round(n * 100) / 100;
+  const netFromSalary = salary => round2(salary * (1 - TAX_RATE));
+  const tenthFromSalary = salary => round2(netFromSalary(salary) * TENTH_RATE);
+
+  // 10% is never typed in: every month gets it recalculated from its salary.
+  const withTenth = data => data.map(e => ({ ...e, tenth: tenthFromSalary(salaryOf(e)) }));
+  const netSalaryOf = e => netFromSalary(salaryOf(e));
+  const netSalaryTotal = data => round2(data.reduce((s, e) => s + netSalaryOf(e), 0));
+
+  // Net salary after the 10% has been taken out.
+  const afterTenthOf = e => round2(netSalaryOf(e) - (e.tenth || 0));
+  const afterTenthTotal = data => round2(data.reduce((s, e) => s + afterTenthOf(e), 0));
+
+  // Sets only the salary of a month; a month that does not exist yet is created with zero savings.
+  const setSalary = (data, month, salary) => {
+    const value = Math.max(0, parseFloat(salary) || 0);
+    if (!data.some(e => e.month === month)) {
+      return [...data, { month, salary: value, me: 0, wife: 0, son: 0, tenth: tenthFromSalary(value) }];
+    }
+    return data.map(e => e.month === month ? { ...e, salary: value, tenth: tenthFromSalary(value) } : e);
+  };
+
+  // Fixed monthly pay in UAH, converted to USD with the rate of the month's last day (or today for the current month).
+  const MONTHLY_PAY_UAH = [13500, 4500];
+  const pad2 = n => String(n).padStart(2, '0');
+  const rateDate = (month, today = new Date()) => {
+    const [y, m] = month.split('-').map(Number);
+    const end = `${month}-${pad2(new Date(Date.UTC(y, m, 0)).getUTCDate())}`;
+    const now = `${today.getFullYear()}-${pad2(today.getMonth() + 1)}-${pad2(today.getDate())}`;
+    return (end < now ? end : now).replace(/-/g, '');
+  };
+  const prevDate = d => {
+    const t = new Date(Date.UTC(+d.slice(0, 4), +d.slice(4, 6) - 1, +d.slice(6, 8) - 1));
+    return `${t.getUTCFullYear()}${pad2(t.getUTCMonth() + 1)}${pad2(t.getUTCDate())}`;
+  };
+  const uahToUsd = (uah, rate) => round2(uah / rate);
+  const payOf = e => e.monthlyPay || MONTHLY_PAY_UAH;
+
+  // Monthly saving in USD; every month starts from the default.
+  const MONTHLY_SAVING_DEFAULT = 1000;
+  const savingOf = e => e.monthlySaving ?? MONTHLY_SAVING_DEFAULT;
+  const setMonthlySaving = (data, month, amount) =>
+    data.map(e => e.month === month ? { ...e, monthlySaving: Math.max(0, parseFloat(amount) || 0) } : e);
+
+  // Amounts set aside for each person in a month; every month starts from these defaults.
+  const ALLOCATION_DEFAULT = { me: 600, wife: 275, son: 100 };
+  const allocationOf = e => ({ ...ALLOCATION_DEFAULT, ...(e.allocation || {}) });
+  const setAllocation = (data, month, values) =>
+    data.map(e => e.month === month
+      ? { ...e, allocation: Object.fromEntries(PEOPLE.map(f => [f, Math.max(0, parseFloat(values[f]) || 0)])) }
+      : e);
+  const setMonthlyPay = (data, month, amounts) =>
+    data.map(e => e.month === month ? { ...e, monthlyPay: amounts.map(v => Math.max(0, parseFloat(v) || 0)) } : e);
+
+  // Salary left after everything in the details: 5%, 10%, per-person amounts and monthly pay (UAH at the month's rate).
+  const salaryLeftOf = (e, rate) => {
+    if (!(rate > 0)) return null;
+    const salary = salaryOf(e);
+    const alloc = allocationOf(e);
+    const spent = (salary - netSalaryOf(e)) + tenthFromSalary(salary) + savingOf(e)
+      + PEOPLE.reduce((s, f) => s + alloc[f], 0)
+      + payOf(e).reduce((s, uah) => s + uahToUsd(uah, rate), 0);
+    return round2(salary - spent);
+  };
+
+  // GitHub contents API helpers for saving the data file in a repository.
+  const GITHUB_FIELDS = ['owner', 'repo', 'branch', 'path', 'token'];
+  const isValidGithubConfig = c => !!c
+    && GITHUB_FIELDS.every(k => typeof c[k] === 'string' && c[k].trim() !== '')
+    && /^[\w.-]+$/.test(c.owner) && /^[\w.-]+$/.test(c.repo)
+    && !c.path.startsWith('/') && !c.path.split('/').some(p => p === '' || p === '.' || p === '..');
+  const githubUrl = c => `https://api.github.com/repos/${c.owner}/${c.repo}/contents/${c.path.split('/').map(encodeURIComponent).join('/')}`;
+  const encodeContent = text => {
+    let bin = '';
+    new TextEncoder().encode(text).forEach(b => { bin += String.fromCharCode(b); });
+    return btoa(bin);
+  };
+  const decodeContent = b64 => new TextDecoder().decode(Uint8Array.from(atob(b64.replace(/\s/g, '')), ch => ch.charCodeAt(0)));
+
+  const parseItem = ({ who, note, amount }) => {
+    const value = parseFloat(amount);
+    if (!FIELDS.includes(who) || !(value > 0)) return null;
+    return { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), who, note: String(note || '').trim(), amount: value };
+  };
+
+  const mapMonth = (data, month, fn) => data.map(e => e.month === month ? fn(e) : e);
+
+  const addItem = (data, month, kind, item) =>
+    mapMonth(data, month, e => ({ ...e, [kind]: [...itemsOf(e, kind), item] }));
+
+  const removeItem = (data, month, kind, id) =>
+    mapMonth(data, month, e => ({ ...e, [kind]: itemsOf(e, kind).filter(s => s.id !== id) }));
+
+  const toCsv = data => ['Month,Salary,Net salary,10%,After 10%,Me,Wife,Son,Total,Income,Spent,Left',
+    ...data.map(e => [e.month, salaryOf(e), netSalaryOf(e), e.tenth, afterTenthOf(e), ...PEOPLE.map(f => e[f]), sum(e), incomeOf(e), spentOf(e), leftOf(e)].join(','))].join('\n');
+
+  const isValidItem = s => s && typeof s.id === 'string' && FIELDS.includes(s.who)
+    && typeof s.note === 'string' && Number.isFinite(s.amount);
+
+  const isValidBackup = parsed => Array.isArray(parsed) && parsed.every(e =>
+    e && /^\d{4}-\d{2}$/.test(e.month) && FIELDS.every(f => Number.isFinite(e[f]))
+    && (e.salary === undefined || Number.isFinite(e.salary))
+    && (e.monthlyPay === undefined || (Array.isArray(e.monthlyPay) && e.monthlyPay.every(Number.isFinite)))
+    && (e.monthlySaving === undefined || Number.isFinite(e.monthlySaving))
+    && (e.allocation === undefined || (e.allocation && PEOPLE.every(f => Number.isFinite(e.allocation[f]))))
+    && KINDS.every(k => e[k] === undefined || (Array.isArray(e[k]) && e[k].every(isValidItem))));
+
+  return {
+    FIELDS, PEOPLE, fmt, sum, esc, salaryOf, salaryTotal, netSalaryOf, netSalaryTotal, tenthFromSalary, withTenth, afterTenthOf, afterTenthTotal, spendingsOf, incomesOf, spentOf, incomeOf, leftOf, spentTotals, incomeTotals, totals,
+    sortDesc, nextFreeMonth, copyEntry, upsert, remove, parseEntry, setSalary, MONTHLY_PAY_UAH, payOf, setMonthlyPay, allocationOf, setAllocation, savingOf, setMonthlySaving, salaryLeftOf, isValidGithubConfig, githubUrl, encodeContent, decodeContent, rateDate, prevDate, uahToUsd, parseItem, addItem, removeItem, toCsv, isValidBackup
+  };
+})();
