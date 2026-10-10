@@ -51,7 +51,7 @@
       <button type="button" id="forget" class="secondary">Forget token and password</button>
     </div>
     <div id="status" role="status"></div>
-    <p class="note">Use a fine-grained token limited to this one repository with "Contents: Read and write". The token, password and settings are stored in this browser only; anyone using this browser can read them. The data file in GitHub is always encrypted with your encryption password; if you lose the password the file cannot be recovered.</p>
+    <p class="note">Use a fine-grained token limited to this one repository with "Contents: Read and write". The token and settings are stored in this browser permanently; the encryption password is kept only while this tab is open and must be entered again after a reload or restart. The data file in GitHub is always encrypted with your encryption password; if you lose the password the file cannot be recovered.</p>
   </div>
 </main>
 
@@ -59,7 +59,7 @@
 <script src="sync.js"></script>
 <script>
 const KEY = 'familySavings';
-const { CFG_KEY, SYNCED_KEY, getFile, push } = GitSync;
+const { CFG_KEY, SYNCED_KEY, PW_KEY, getFile, push } = GitSync;
 const { isValidGithubConfig, decodeContent, isValidBackup, isEncrypted, decryptText } = Savings;
 const $ = id => document.getElementById(id);
 const FIELDS = ['owner', 'repo', 'branch', 'path', 'token'];
@@ -86,7 +86,9 @@ function validConfig() {
   // A different target file has not been loaded or saved by this browser yet.
   const old = GitSync.config();
   if (['owner', 'repo', 'branch', 'path'].some(f => old[f] !== c[f])) sessionStorage.removeItem(SYNCED_KEY);
-  localStorage.setItem(CFG_KEY, JSON.stringify(c));
+  const { password, ...stored } = c;
+  localStorage.setItem(CFG_KEY, JSON.stringify(stored));
+  if (password) sessionStorage.setItem(PW_KEY, password); else sessionStorage.removeItem(PW_KEY);
   return c;
 }
 
@@ -145,6 +147,7 @@ $('forget').addEventListener('click', () => {
   delete c.token;
   delete c.password;
   localStorage.setItem(CFG_KEY, JSON.stringify(c));
+  sessionStorage.removeItem(PW_KEY);
   status('Token and password removed from this browser.', true);
 });
 </script>
