@@ -24,7 +24,7 @@
 <script src="logic.js"></script>
 <script>
 const { FIELDS, PEOPLE, fmt, sum, esc, salaryOf, salaryTotal, netSalaryOf, netSalaryTotal, tenthFromSalary, withTenth, afterTenthOf, afterTenthTotal, spendingsOf, incomesOf, spentOf, incomeOf, leftOf, spentTotals, incomeTotals, totals, sortDesc,
-  nextFreeMonth, copyEntry, upsert, remove, parseEntry, setSalary, MONTHLY_PAY_UAH, payOf, setMonthlyPay, allocationOf, setAllocation, savingOf, setMonthlySaving, salaryLeftOf, isValidGithubConfig, githubUrl, encodeContent, decodeContent, rateDate, prevDate, uahToUsd, parseItem, addItem, removeItem, toCsv, isValidBackup } = Savings;
+  nextFreeMonth, copyEntry, upsert, remove, parseEntry, setSalary, MONTHLY_PAY_UAH, payOf, setMonthlyPay, allocationOf, setAllocation, savingOf, setMonthlySaving, salaryLeftOf, isValidGithubConfig, githubUrl, encodeContent, decodeContent, encryptText, decryptText, isEncrypted, rateDate, prevDate, uahToUsd, parseItem, addItem, removeItem, toCsv, isValidBackup } = Savings;
 const parseSpending = parseItem;
 const addSpending = (d, m, s) => addItem(d, m, 'spendings', s);
 const removeSpending = (d, m, id) => removeItem(d, m, 'spendings', id);
@@ -475,8 +475,57 @@ describe('income (same logic as spending)', () => {
 });
 
 const s = document.getElementById('summary');
-s.textContent = failed ? `${failed} failed, ${passed} passed` : `All ${passed} tests passed`;
-s.className = failed ? 'fail' : 'ok';
+function showSummary() {
+  s.textContent = failed ? `${failed} failed, ${passed} passed` : `All ${passed} tests passed`;
+  s.className = failed ? 'fail' : 'ok';
+}
+showSummary();
+
+// Encryption uses the async Web Crypto API, so these tests run after the others.
+async function itAsync(name, fn) {
+  const row = document.createElement('div');
+  row.className = 't';
+  row.textContent = name;
+  try {
+    await fn();
+    row.classList.add('pass');
+    passed++;
+  } catch (e) {
+    row.classList.add('fail');
+    const m = document.createElement('small');
+    m.textContent = e.message;
+    row.appendChild(m);
+    failed++;
+  }
+  group.appendChild(row);
+  showSummary();
+}
+
+(async () => {
+  describe('encrypted data file', () => {});
+  const text = JSON.stringify([E('2026-01', 1, 2, 3, 4)], null, 2);
+  await itAsync('encrypt then decrypt returns the original text', async () =>
+    eq(await decryptText(await encryptText(text, 'secret'), 'secret'), text));
+  await itAsync('keeps unicode text', async () =>
+    eq(await decryptText(await encryptText('caf\u00e9 \u20b4', 'p\u00e4ss'), 'p\u00e4ss'), 'caf\u00e9 \u20b4'));
+  await itAsync('the encrypted file does not contain the data', async () => {
+    const enc = await encryptText(text, 'secret');
+    eq(enc.includes('2026-01'), false);
+    eq(isEncrypted(enc), true);
+  });
+  await itAsync('the same text encrypts differently each time', async () =>
+    eq(await encryptText(text, 'secret') === await encryptText(text, 'secret'), false));
+  await itAsync('a wrong password is rejected', async () => {
+    const enc = await encryptText(text, 'secret');
+    let msg = '';
+    try { await decryptText(enc, 'other'); } catch (e) { msg = e.message; }
+    eq(msg, 'Wrong password or damaged file.');
+  });
+  await itAsync('plain data is not treated as encrypted', async () => {
+    eq(isEncrypted(text), false);
+    eq(isEncrypted('not json'), false);
+  });
+})();
 </script>
 </body>
 </html>

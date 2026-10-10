@@ -165,6 +165,36 @@ const Savings = (() => {
   };
   const decodeContent = b64 => new TextDecoder().decode(Uint8Array.from(atob(b64.replace(/\s/g, '')), ch => ch.charCodeAt(0)));
 
+  // Optional password encryption of the data file: PBKDF2 key + AES-GCM.
+  const ENCRYPTED_FORMAT = 'savings-encrypted-v1';
+  const bytesToB64 = bytes => { let s = ''; bytes.forEach(b => { s += String.fromCharCode(b); }); return btoa(s); };
+  const b64ToBytes = b64 => Uint8Array.from(atob(b64), ch => ch.charCodeAt(0));
+  const deriveKey = async (password, salt) => {
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 250000, hash: 'SHA-256' }, base,
+      { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  };
+  const encryptText = async (text, password) => {
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const key = await deriveKey(password, salt);
+    const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(text));
+    return JSON.stringify({ format: ENCRYPTED_FORMAT, salt: bytesToB64(salt), iv: bytesToB64(iv), data: bytesToB64(new Uint8Array(data)) }, null, 2);
+  };
+  const isEncrypted = text => {
+    try { return JSON.parse(text).format === ENCRYPTED_FORMAT; } catch { return false; }
+  };
+  const decryptText = async (fileText, password) => {
+    try {
+      const o = JSON.parse(fileText);
+      const key = await deriveKey(password, b64ToBytes(o.salt));
+      const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64ToBytes(o.iv) }, key, b64ToBytes(o.data));
+      return new TextDecoder().decode(plain);
+    } catch {
+      throw new Error('Wrong password or damaged file.');
+    }
+  };
+
   const parseItem = ({ who, note, amount }) => {
     const value = parseFloat(amount);
     if (!FIELDS.includes(who) || !(value > 0)) return null;
@@ -195,6 +225,6 @@ const Savings = (() => {
 
   return {
     FIELDS, PEOPLE, fmt, sum, esc, salaryOf, salaryTotal, netSalaryOf, netSalaryTotal, tenthFromSalary, withTenth, afterTenthOf, afterTenthTotal, spendingsOf, incomesOf, spentOf, incomeOf, leftOf, spentTotals, incomeTotals, totals,
-    sortDesc, nextFreeMonth, copyEntry, upsert, remove, parseEntry, setSalary, MONTHLY_PAY_UAH, payOf, setMonthlyPay, allocationOf, setAllocation, savingOf, setMonthlySaving, salaryLeftOf, isValidGithubConfig, githubUrl, encodeContent, decodeContent, rateDate, prevDate, uahToUsd, parseItem, addItem, removeItem, toCsv, isValidBackup
+    sortDesc, nextFreeMonth, copyEntry, upsert, remove, parseEntry, setSalary, MONTHLY_PAY_UAH, payOf, setMonthlyPay, allocationOf, setAllocation, savingOf, setMonthlySaving, salaryLeftOf, isValidGithubConfig, githubUrl, encodeContent, decodeContent, encryptText, decryptText, isEncrypted, rateDate, prevDate, uahToUsd, parseItem, addItem, removeItem, toCsv, isValidBackup
   };
 })();

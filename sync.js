@@ -31,7 +31,8 @@ const GitSync = (() => {
 
   async function push(c) {
     const existing = await getFile(c);
-    const text = JSON.stringify(JSON.parse(localStorage.getItem(KEY) || '[]'), null, 2);
+    let text = JSON.stringify(JSON.parse(localStorage.getItem(KEY) || '[]'), null, 2);
+    if (c.password) text = await Savings.encryptText(text, c.password);
     const body = { message: `Update savings data ${new Date().toISOString()}`, content: encodeContent(text), branch: c.branch };
     if (existing) body.sha = existing.sha;
     const res = await fetch(githubUrl(c), { method: 'PUT', headers: { ...headers(c), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });

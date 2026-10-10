@@ -41,16 +41,17 @@
       <div><label for="branch">Branch</label><input id="branch" value="main" required></div>
       <div><label for="path">File path</label><input id="path" value="savings-data.json" required></div>
       <div><label for="token">Personal access token</label><input id="token" type="password" required></div>
+      <div><label for="password">Encryption password (optional)</label><input id="password" type="password"></div>
     </form>
     <label class="toggle"><input type="checkbox" id="autoSync"> Save automatically after every change</label>
     <div class="tools">
       <button type="button" id="saveCfg" class="secondary">Save settings</button>
       <button type="button" id="push">Save data to GitHub</button>
       <button type="button" id="pull">Load data from GitHub</button>
-      <button type="button" id="forget" class="secondary">Forget token</button>
+      <button type="button" id="forget" class="secondary">Forget token and password</button>
     </div>
     <div id="status" role="status"></div>
-    <p class="note">Use a fine-grained token limited to this one repository with "Contents: Read and write". The token and settings are stored in this browser only; anyone using this browser can read them.</p>
+    <p class="note">Use a fine-grained token limited to this one repository with "Contents: Read and write". The token, password and settings are stored in this browser only; anyone using this browser can read them. If you set an encryption password, the data file in GitHub is encrypted with it; if you lose the password the file cannot be recovered.</p>
   </div>
 </main>
 
@@ -59,15 +60,16 @@
 <script>
 const KEY = 'familySavings';
 const { CFG_KEY, SYNCED_KEY, getFile, push } = GitSync;
-const { isValidGithubConfig, decodeContent, isValidBackup } = Savings;
+const { isValidGithubConfig, decodeContent, isValidBackup, isEncrypted, decryptText } = Savings;
 const $ = id => document.getElementById(id);
 const FIELDS = ['owner', 'repo', 'branch', 'path', 'token'];
 
 const saved = GitSync.config();
 FIELDS.forEach(f => { if (typeof saved[f] === 'string') $(f).value = saved[f]; });
+if (typeof saved.password === 'string') $('password').value = saved.password;
 $('autoSync').checked = !!saved.autoSync;
 
-const readConfig = () => ({ ...Object.fromEntries(FIELDS.map(f => [f, $(f).value.trim()])), autoSync: $('autoSync').checked });
+const readConfig = () => ({ ...Object.fromEntries(FIELDS.map(f => [f, $(f).value.trim()])), autoSync: $('autoSync').checked, password: $('password').value });
 
 function status(text, ok) {
   const s = $('status');
@@ -121,7 +123,12 @@ $('pull').addEventListener('click', () => {
   run(async () => {
     const file = await getFile(c);
     if (!file || !file.content) throw new Error('File not found in the repository.');
-    const parsed = JSON.parse(decodeContent(file.content));
+    let text = decodeContent(file.content);
+    if (isEncrypted(text)) {
+      if (!c.password) throw new Error('The file is encrypted: enter the encryption password.');
+      text = await decryptText(text, c.password);
+    }
+    const parsed = JSON.parse(text);
     if (!isValidBackup(parsed)) throw new Error('The file is not valid savings data.');
     if (!confirm('Replace current data with the data from GitHub?')) return;
     localStorage.setItem(KEY, JSON.stringify(parsed));
@@ -132,10 +139,12 @@ $('pull').addEventListener('click', () => {
 
 $('forget').addEventListener('click', () => {
   $('token').value = '';
+  $('password').value = '';
   const c = GitSync.config();
   delete c.token;
+  delete c.password;
   localStorage.setItem(CFG_KEY, JSON.stringify(c));
-  status('Token removed from this browser.', true);
+  status('Token and password removed from this browser.', true);
 });
 </script>
 </body>
