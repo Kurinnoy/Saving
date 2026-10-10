@@ -30,9 +30,9 @@ const GitSync = (() => {
   }
 
   async function push(c) {
+    if (!c.password) throw new Error('Set an encryption password on the Config page: data is only sent to GitHub encrypted.');
     const existing = await getFile(c);
-    let text = JSON.stringify(JSON.parse(localStorage.getItem(KEY) || '[]'), null, 2);
-    if (c.password) text = await Savings.encryptText(text, c.password);
+    const text = await Savings.encryptText(JSON.stringify(JSON.parse(localStorage.getItem(KEY) || '[]'), null, 2), c.password);
     const body = { message: `Update savings data ${new Date().toISOString()}`, content: encodeContent(text), branch: c.branch };
     if (existing) body.sha = existing.sha;
     const res = await fetch(githubUrl(c), { method: 'PUT', headers: { ...headers(c), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -71,6 +71,10 @@ const GitSync = (() => {
   function schedule() {
     const c = config();
     if (!c.autoSync || !isValidGithubConfig(c)) return;
+    if (!c.password) {
+      show('Auto-save is waiting: set an encryption password on the Config page', false);
+      return;
+    }
     // A browser that never loaded or saved this repository must not overwrite it.
     if (localStorage.getItem(SYNCED_KEY) !== '1') {
       show('Auto-save is waiting: load or save data on the Config page first', false);
