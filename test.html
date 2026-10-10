@@ -24,7 +24,7 @@
 <script src="logic.js"></script>
 <script>
 const { FIELDS, PEOPLE, fmt, sum, esc, salaryOf, salaryTotal, netSalaryOf, netSalaryTotal, tenthFromSalary, withTenth, afterTenthOf, afterTenthTotal, spendingsOf, incomesOf, spentOf, incomeOf, leftOf, spentTotals, incomeTotals, totals, sortDesc,
-  nextFreeMonth, copyEntry, upsert, remove, parseEntry, setSalary, MONTHLY_PAY_UAH, payOf, setMonthlyPay, allocationOf, setAllocation, savingOf, setMonthlySaving, salaryLeftOf, isValidGithubConfig, githubUrl, encodeContent, decodeContent, encryptText, decryptText, isEncrypted, rateDate, prevDate, uahToUsd, parseItem, addItem, removeItem, toCsv, isValidBackup } = Savings;
+  nextFreeMonth, copyEntry, upsert, remove, parseEntry, setSalary, MONTHLY_PAY_UAH, payOf, setMonthlyPay, allocationOf, setAllocation, savingOf, setMonthlySaving, salaryLeftOf, salaryIncomeOf, isValidGithubConfig, githubUrl, encodeContent, decodeContent, encryptText, decryptText, isEncrypted, rateDate, prevDate, uahToUsd, parseItem, addItem, removeItem, toCsv, isValidBackup } = Savings;
 const parseSpending = parseItem;
 const addSpending = (d, m, s) => addItem(d, m, 'spendings', s);
 const removeSpending = (d, m, id) => removeItem(d, m, 'spendings', id);
@@ -156,7 +156,7 @@ describe('toCsv (Export CSV)', () => {
   it('has a header line', () => eq(toCsv([]), 'Month,Salary,Net salary,10%,After 10%,Me,Wife,Son,Total,Income,Spent,Left'));
   it('has one line per month with salary, total, income, spent and left', () =>
     eq(toCsv([{ ...E('2026-01', 1, 2, 3, 4), salary: 500, spendings: [S('a', 'me', 3)], incomes: [S('b', 'wife', 20)] }]),
-      'Month,Salary,Net salary,10%,After 10%,Me,Wife,Son,Total,Income,Spent,Left\n2026-01,500,475,4,471,1,2,3,10,20,3,27'));
+      'Month,Salary,Net salary,10%,After 10%,Me,Wife,Son,Total,Income,Spent,Left\n2026-01,500,475,4,471,1,2,3,10,995,3,1002'));
   it('works for months without salary or child entries', () =>
     eq(toCsv([E('2026-01', 1, 2, 3, 4)]), 'Month,Salary,Net salary,10%,After 10%,Me,Wife,Son,Total,Income,Spent,Left\n2026-01,0,0,4,-4,1,2,3,10,0,0,10'));
 });
@@ -198,7 +198,7 @@ describe('salary', () => {
   it('salaryTotal adds up all months', () =>
     eq(salaryTotal([{ ...E('2026-01'), salary: 300 }, { ...E('2026-02'), salary: 200 }, E('2026-03')]), 500));
   it('salary is not part of the saved total', () => eq(sum({ ...E('2026-01', 1, 2, 3, 4), salary: 999 }), 10));
-  it('salary is not part of Left', () => eq(leftOf({ ...E('2026-01', 1, 2, 3, 4), salary: 999 }), 10));
+  it('salary itself is not part of Left, only its per-person amounts', () => eq(leftOf({ ...E('2026-01', 1, 2, 3, 4), salary: 999 }), 10 + 975));
   it('Copy keeps the salary', () =>
     eq(copyEntry([{ ...E('2026-01'), salary: 300 }], '2026-01')[1].salary, 300));
   it('backup accepts salary and old data without it', () => {
@@ -327,6 +327,29 @@ describe('GitHub config helpers', () => {
   it('base64 round trip keeps unicode', () => eq(decodeContent(encodeContent('[{"note":"café ₴"}]')), '[{"note":"café ₴"}]'));
   it('decodes base64 with line breaks like GitHub sends', () => eq(decodeContent('W1\n0='), '[]'));
   it('encodes plain text', () => eq(encodeContent('[]'), 'W10='));
+});
+
+describe('My salary amounts count as income', () => {
+  const m = { ...E('2026-01', 10, 20, 30, 0), salary: 1000 };
+  it('income per person comes from the details amounts', () => {
+    eq([incomeOf(m, 'me'), incomeOf(m, 'wife'), incomeOf(m, 'son')], [600, 275, 100]);
+    eq(incomeOf(m), 975);
+  });
+  it('adds to typed income lines', () =>
+    eq(incomeOf({ ...m, incomes: [S('a', 'me', 5)] }, 'me'), 605));
+  it('uses changed amounts', () =>
+    eq(incomeOf(setAllocation([m], '2026-01', { me: 1, wife: 2, son: 3 })[0]), 6));
+  it('months without salary or amounts have no such income', () => {
+    eq(salaryIncomeOf(E('2026-01', 10, 20, 30)), 0);
+    eq(incomeOf(E('2026-01', 10, 20, 30)), 0);
+  });
+  it('10% has no such income', () => eq(incomeOf(m, 'tenth'), 0));
+  it('incomeTotals adds up all months', () =>
+    eq(incomeTotals([m, { ...E('2026-02'), salary: 500 }]), { me: 1200, wife: 550, son: 200, tenth: 0, all: 1950 }));
+  it('Left includes the amounts', () => {
+    eq(leftOf(m, 'me'), 10 + 600);
+    eq(leftOf(m), 60 + 975);
+  });
 });
 
 describe('esc', () => {

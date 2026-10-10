@@ -46,6 +46,9 @@ const GitSync = (() => {
     if (!c.password) throw new Error('Set an encryption password on the Config page: data is only sent to GitHub encrypted.');
     if (sessionStorage.getItem(KEY) === null) throw new Error('No data is loaded in this session.');
     const existing = await getFile(c);
+    if (existing && data().length === 0 && (await fetchRemote(c)).length > 0) {
+      throw new Error('Refusing to replace the data in GitHub with an empty list');
+    }
     const text = await Savings.encryptText(JSON.stringify(data(), null, 2), c.password);
     const body = { message: `Update savings data ${new Date().toISOString()}`, content: encodeContent(text), branch: c.branch };
     if (existing) body.sha = existing.sha;
@@ -246,5 +249,5 @@ const GitSync = (() => {
     addEventListener('pagehide', stamp);
   })();
 
-  return { config, getFile, push, schedule, ready, SYNCED_KEY, CFG_KEY, PW_KEY };
+  return { config, getFile, push, schedule, ready, askPassword, SYNCED_KEY, CFG_KEY, PW_KEY };
 })();

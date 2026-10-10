@@ -17,10 +17,17 @@ const Savings = (() => {
     .filter(s => !who || s.who === who)
     .reduce((s, x) => s + x.amount, 0);
   const spentOf = (e, who) => sumItems(e, 'spendings', who);
-  const incomeOf = (e, who) => sumItems(e, 'incomes', who);
+  // Income = typed income lines + the per-person amounts of the month's My salary details.
+  const salaryIncomeOf = (e, who) => {
+    if (!(salaryOf(e) > 0 || e.allocation)) return 0;
+    const alloc = allocationOf(e);
+    return who ? alloc[who] || 0 : PEOPLE.reduce((s, f) => s + alloc[f], 0);
+  };
+  const incomeOf = (e, who) => sumItems(e, 'incomes', who) + salaryIncomeOf(e, who);
 
   const itemTotals = (data, kind) => {
-    const t = Object.fromEntries(FIELDS.map(f => [f, data.reduce((s, e) => s + sumItems(e, kind, f), 0)]));
+    const amount = (e, f) => kind === 'incomes' ? incomeOf(e, f) : sumItems(e, kind, f);
+    const t = Object.fromEntries(FIELDS.map(f => [f, data.reduce((s, e) => s + amount(e, f), 0)]));
     t.all = FIELDS.reduce((s, f) => s + t[f], 0);
     return t;
   };
@@ -225,6 +232,6 @@ const Savings = (() => {
 
   return {
     FIELDS, PEOPLE, fmt, sum, esc, salaryOf, salaryTotal, netSalaryOf, netSalaryTotal, tenthFromSalary, withTenth, afterTenthOf, afterTenthTotal, spendingsOf, incomesOf, spentOf, incomeOf, leftOf, spentTotals, incomeTotals, totals,
-    sortDesc, nextFreeMonth, copyEntry, upsert, remove, parseEntry, setSalary, MONTHLY_PAY_UAH, payOf, setMonthlyPay, allocationOf, setAllocation, savingOf, setMonthlySaving, salaryLeftOf, isValidGithubConfig, githubUrl, encodeContent, decodeContent, encryptText, decryptText, isEncrypted, rateDate, prevDate, uahToUsd, parseItem, addItem, removeItem, toCsv, isValidBackup
+    sortDesc, nextFreeMonth, copyEntry, upsert, remove, parseEntry, setSalary, MONTHLY_PAY_UAH, payOf, setMonthlyPay, allocationOf, setAllocation, savingOf, setMonthlySaving, salaryLeftOf, salaryIncomeOf, isValidGithubConfig, githubUrl, encodeContent, decodeContent, encryptText, decryptText, isEncrypted, rateDate, prevDate, uahToUsd, parseItem, addItem, removeItem, toCsv, isValidBackup
   };
 })();

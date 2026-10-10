@@ -37,6 +37,8 @@
   .spends .who { width: 60px; font-weight: bold; }
   .spends .amt { width: 100px; text-align: right; }
   .spends .what { flex: 1; }
+  .spends li.fixed { color: #555; }
+  .spends li.fixed::after { content: ''; width: 58px; }
   .spendForm { display: flex; flex-wrap: wrap; gap: 8px; }
   .spendForm input, .spendForm select { width: auto; padding: 6px; font-size: 14px; }
   .spendForm input[name=note] { flex: 1; min-width: 120px; }
@@ -53,16 +55,6 @@
 <main>
   <h1>Family Savings</h1>
   <nav><a href="index.html" class="current">Family Savings</a><a href="salary.html">My salary</a><a href="config.html">Config</a><span id="syncStatus" class="note"></span></nav>
-
-  <div class="card">
-    <div class="tools" style="margin-top:0">
-      <button class="secondary" id="exportCsv">Export CSV</button>
-      <button class="secondary" id="backup">Backup (JSON)</button>
-      <button class="secondary" id="restore">Restore backup</button>
-      <input type="file" id="file" accept="application/json" hidden>
-    </div>
-    <p class="note" style="margin-bottom:0">Data is stored in this browser only. Use Backup regularly.</p>
-  </div>
 
   <div class="card">
     <div class="totals" id="totals"></div>
@@ -89,7 +81,7 @@
       <table id="table">
         <thead>
           <tr id="foot"></tr>
-          <tr><th>Month</th><th>Me</th><th>Wife</th><th>Son</th><th></th></tr>
+          <tr><th>Month</th><th>Me</th><th>Wife</th><th>Son</th><th>10%</th><th>Total</th><th></th></tr>
         </thead>
         <tbody id="rows"></tbody>
       </table>
@@ -101,8 +93,8 @@
 <script src="sync.js"></script>
 <script>
 const KEY = 'familySavings';
-const { FIELDS, PEOPLE, fmt, sum, salaryOf, withTenth, esc, spendingsOf, incomesOf, spentOf, incomeOf, leftOf, spentTotals, incomeTotals, totals: calcTotals,
-  sortDesc, copyEntry, upsert, remove, parseEntry, parseItem, addItem, removeItem, toCsv, isValidBackup } = Savings;
+const { FIELDS, PEOPLE, fmt, sum, salaryOf, allocationOf, withTenth, esc, spendingsOf, incomesOf, spentOf, incomeOf, leftOf, spentTotals, incomeTotals, totals: calcTotals,
+  sortDesc, upsert, parseEntry, parseItem, addItem, removeItem } = Savings;
 const LABELS = { me: 'Me', wife: 'Wife', son: 'Son', tenth: '10%' };
 const open = new Set();
 const $ = id => document.getElementById(id);
@@ -119,19 +111,35 @@ function resetForm() {
 
 const money = n => `<span class="${n < 0 ? 'neg' : ''}">${fmt(n)}</span>`;
 
+// History columns: what is left per person (saved + income - spent), then the 10% part.
+const COLUMNS = [...PEOPLE, 'tenth'];
+
 const SECTIONS = [
   { kind: 'incomes', title: 'Income', items: incomesOf, empty: 'No income yet', add: 'Add income', hint: 'From where?' },
   { kind: 'spendings', title: 'Spending', items: spendingsOf, empty: 'No spending yet', add: 'Add spending', hint: 'What for?' }
 ];
 
+// Read-only income lines taken from the month's My salary details; they do not change any totals.
+function salaryIncomeLines(e) {
+  if (!(salaryOf(e) > 0 || e.allocation)) return '';
+  const alloc = allocationOf(e);
+  return PEOPLE.map(f => `
+    <li class="fixed">
+      <span class="who">${LABELS[f]}</span>
+      <span class="what">From My salary</span>
+      <span class="amt">${fmt(alloc[f])}</span>
+    </li>`).join('');
+}
+
 function sectionHtml(e, sec) {
-  const list = sec.items(e).map(s => `
+  const fixed = sec.kind === 'incomes' ? salaryIncomeLines(e) : '';
+  const list = fixed + (sec.items(e).map(s => `
     <li>
       <span class="who">${LABELS[s.who]}</span>
       <span class="what">${esc(s.note)}</span>
       <span class="amt">${fmt(s.amount)}</span>
       <button class="danger" data-delitem="${esc(s.id)}" data-kind="${sec.kind}" data-month="${e.month}">Delete</button>
-    </li>`).join('') || `<li class="note">${sec.empty}</li>`;
+    </li>`).join('') || (fixed ? '' : `<li class="note">${sec.empty}</li>`));
   return `<div class="section">
     <h4>${sec.title}</h4>
     <ul class="spends">${list}</ul>
@@ -145,7 +153,7 @@ function sectionHtml(e, sec) {
 }
 
 function detailsHtml(e) {
-  return `<tr class="child"><td colspan="5"><div class="sections">${SECTIONS.map(s => sectionHtml(e, s)).join('')}</div></td></tr>`;
+  return `<tr class="child"><td colspan="7"><div class="sections">${SECTIONS.map(s => sectionHtml(e, s)).join('')}</div></td></tr>`;
 }
 
 function render() {
@@ -153,28 +161,24 @@ function render() {
   const totals = calcTotals(data);
   const spent = spentTotals(data);
   const income = incomeTotals(data);
-  const all = totals.all;
   const small = k => `<small>Income ${fmt(income[k])} | Spent ${fmt(spent[k])} | Left ${money(totals[k] + income[k] - spent[k])}</small>`;
 
   $('totals').innerHTML =
-    [['My money', 'me'], ['Wife money', 'wife'], ['Son money', 'son'], ['10% money', 'tenth']]
-      .map(([l, f]) => `<div class="total"><span>${l}</span><strong>${fmt(totals[f])}</strong>${small(f)}</div>`).join('') +
-    `<div class="total all"><span>All together</span><strong>${fmt(all)}</strong>${small('all')}</div>`;
+    [['My money', 'me'], ['Wife money', 'wife'], ['Son money', 'son']]
+      .map(([l, f]) => `<div class="total"><span>${l}</span><strong>${fmt(totals[f])}</strong>${small(f)}</div>`).join('');
 
   $('rows').innerHTML = data.map(e => `
     <tr>
       <td>${e.month}</td>
-      ${PEOPLE.map(f => `<td>${fmt(e[f])}</td>`).join('')}
+      ${COLUMNS.map(f => `<td>${money(leftOf(e, f))}</td>`).join('')}
+      <td><strong>${money(leftOf(e))}</strong></td>
       <td>
         <button class="spend" data-spend="${e.month}">Income/Spending (${incomesOf(e).length}/${spendingsOf(e).length})</button>
-        <button class="copy" data-copy="${e.month}">Copy</button>
-        <button class="edit" data-edit="${e.month}">Edit</button>
-        <button class="danger" data-del="${e.month}">Delete</button>
       </td>
-    </tr>${open.has(e.month) ? detailsHtml(e) : ''}`).join('') || '<tr><td colspan="5">No data yet</td></tr>';
+    </tr>${open.has(e.month) ? detailsHtml(e) : ''}`).join('') || '<tr><td colspan="7">No data yet</td></tr>';
 
   $('foot').innerHTML = data.length
-    ? `<td>Total</td>${PEOPLE.map(f => `<td>${fmt(totals[f])}</td>`).join('')}<td></td>`
+    ? `<td>Total</td>${COLUMNS.map(f => `<td>${money(data.reduce((s, e) => s + leftOf(e, f), 0))}</td>`).join('')}<td><strong>${money(data.reduce((s, e) => s + leftOf(e), 0))}</strong></td><td></td>`
     : '';
 }
 
@@ -202,7 +206,7 @@ $('rows').addEventListener('submit', ev => {
 });
 
 $('rows').addEventListener('click', ev => {
-  const { edit, del, copy, spend, delitem, kind, month } = ev.target.dataset;
+  const { spend, delitem, kind, month } = ev.target.dataset;
   if (spend) {
     open.has(spend) ? open.delete(spend) : open.add(spend);
     render();
@@ -210,53 +214,6 @@ $('rows').addEventListener('click', ev => {
     data = removeItem(data, month, kind, delitem);
     persist();
     render();
-  } else if (copy) {
-    data = copyEntry(data, copy);
-    persist();
-    render();
-  } else if (edit) {
-    const e = data.find(x => x.month === edit);
-    $('month').value = e.month;
-    PEOPLE.forEach(f => $(f).value = e[f]);
-    $('formTitle').textContent = 'Edit month';
-    $('cancel').hidden = false;
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  } else if (del && confirm(`Delete ${del}?`)) {
-    data = remove(data, del);
-    persist();
-    render();
-  }
-});
-
-function download(name, text, type) {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([text], { type }));
-  a.download = name;
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
-
-$('exportCsv').addEventListener('click', () => {
-  download('savings.csv', toCsv(data), 'text/csv');
-});
-
-$('backup').addEventListener('click', () =>
-  download('savings-backup.json', JSON.stringify(data, null, 2), 'application/json'));
-
-$('restore').addEventListener('click', () => $('file').click());
-$('file').addEventListener('change', async ev => {
-  const file = ev.target.files[0];
-  ev.target.value = '';
-  if (!file) return;
-  try {
-    const parsed = JSON.parse(await file.text());
-    if (!isValidBackup(parsed)) throw new Error('bad format');
-    if (!confirm('Replace current data with the backup?')) return;
-    data = parsed;
-    persist();
-    render();
-  } catch {
-    alert('Invalid backup file.');
   }
 });
 

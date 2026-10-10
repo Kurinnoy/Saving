@@ -104,8 +104,8 @@ function childHtml(e) {
   return `<tr class="child"><td colspan="4"><div class="calc">
     <div><span>5%</span><strong>${fmt(salaryOf(e) - netSalaryOf(e))}</strong></div>
     <div><span>10%</span><strong>${fmt(e.tenth)}</strong></div>
+    <div><span>USD rate</span><strong>${rate ? `1 USD = ${rate} UAH` : rate === null ? 'unavailable' : 'loading...'}</strong></div>
     <form class="payForm" data-month="${e.month}"><div><span>Monthly saving $ <input name="saving" type="number" min="0" step="0.01" value="${savingOf(e)}"></span></div>${forWho}${pay}<div class="save"><button type="submit">Save</button></div></form>
-    ${rate ? `<div><span>Rate</span><strong>1 USD = ${rate} UAH</strong></div>` : ''}
   </div></td></tr>`;
 }
 
