@@ -24,7 +24,7 @@
 <script src="logic.js"></script>
 <script>
 const { FIELDS, PEOPLE, fmt, sum, esc, salaryOf, salaryTotal, netSalaryOf, netSalaryTotal, tenthFromSalary, withTenth, afterTenthOf, afterTenthTotal, spendingsOf, incomesOf, spentOf, incomeOf, leftOf, spentTotals, incomeTotals, totals, sortDesc,
-  nextFreeMonth, copyEntry, upsert, remove, parseEntry, setSalary, MONTHLY_PAY_UAH, payOf, setMonthlyPay, allocationOf, setAllocation, savingOf, setMonthlySaving, investmentOf, setMonthlyInvestment, salaryLeftOf, salaryIncomeOf, MONTHLY_PAY_LABELS, isValidGithubConfig, githubUrl, encodeContent, decodeContent, encryptText, decryptText, isEncrypted, rateDate, prevDate, uahToUsd, TENTH_SPEND_UAH, addTenthSpending, DEFAULT_SETTINGS, normalizeSettings, parseItem, addItem, removeItem, toCsv, isValidBackup } = Savings;
+  nextFreeMonth, copyEntry, upsert, remove, parseEntry, setSalary, MONTHLY_PAY_UAH, payOf, setMonthlyPay, allocationOf, setAllocation, savingOf, setMonthlySaving, investmentOf, setMonthlyInvestment, investmentLeftOf, salaryLeftOf, salaryIncomeOf, MONTHLY_PAY_LABELS, isValidGithubConfig, githubUrl, encodeContent, decodeContent, encryptText, decryptText, isEncrypted, rateDate, prevDate, uahToUsd, TENTH_SPEND_UAH, addTenthSpending, DEFAULT_SETTINGS, normalizeSettings, parseItem, addItem, removeItem, toCsv, isValidBackup } = Savings;
 const parseSpending = parseItem;
 const addSpending = (d, m, s) => addItem(d, m, 'spendings', s);
 const removeSpending = (d, m, id) => removeItem(d, m, 'spendings', id);
@@ -398,6 +398,20 @@ describe('defaults for new salary lines (Config page)', () => {
     e.monthlyPay[0] = 999;
     eq(c, custom);
   });
+});
+
+describe('investment income and spending', () => {
+  const m = { ...E('2026-01'), salary: 1000, incomes: [S('a', 'investment', 100), S('b', 'me', 5)], spendings: [S('c', 'investment', 30)] };
+  it('parseItem accepts investment', () => eq(parseItem({ who: 'investment', amount: '5' }).who, 'investment'));
+  it('investment is the monthly investment plus income minus spending', () => eq(investmentLeftOf(m), 500 + 100 - 30));
+  it('months without a salary only have the typed lines', () =>
+    eq(investmentLeftOf({ ...E('2026-01'), incomes: [S('a', 'investment', 100)] }), 100));
+  it('investment lines do not change the totals of the other people', () => {
+    eq(incomeOf(m, 'me'), 280);
+    eq(incomeOf(m), 650 + 5);
+    eq(spentOf(m), 0);
+  });
+  it('backup accepts investment lines', () => eq(isValidBackup([m]), true));
 });
 
 describe('GitHub config helpers', () => {

@@ -34,12 +34,12 @@
   .sections { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; }
   .section h4 { margin: 0 0 6px; }
   .spends li { display: flex; gap: 12px; align-items: center; padding: 3px 0; }
-  .spends .who { width: 60px; font-weight: bold; }
+  .spends .who { width: 90px; font-weight: bold; }
   .spends .amt { width: 100px; text-align: right; }
   .spends .what { flex: 1; }
   .spends li.fixed { color: #555; }
   .spends li.fixed::after { content: ''; width: 58px; }
-  .spendForm { display: flex; flex-wrap: wrap; gap: 8px; }
+  .spendForm { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
   .spendForm input, .spendForm select { width: auto; padding: 6px; font-size: 14px; }
   .spendForm input[name=note] { flex: 1; min-width: 120px; }
   table { width: 100%; border-collapse: collapse; }
@@ -67,7 +67,7 @@
       <table id="table">
         <thead>
           <tr id="foot"></tr>
-          <tr><th>Month</th><th>Me</th><th>Wife</th><th>Son</th><th>10%</th><th>Total</th><th></th></tr>
+          <tr><th>Month</th><th>Investment</th><th>Me</th><th>Wife</th><th>Son</th><th>10%</th><th>Total</th><th></th></tr>
         </thead>
         <tbody id="rows"></tbody>
       </table>
@@ -79,9 +79,9 @@
 <script src="sync.js"></script>
 <script>
 const KEY = 'familySavings';
-const { FIELDS, PEOPLE, fmt, sum, salaryOf, allocationOf, withTenth, esc, spendingsOf, incomesOf, spentOf, incomeOf, leftOf, spentTotals, incomeTotals, totals: calcTotals,
-  sortDesc, parseItem, addItem, removeItem } = Savings;
-const LABELS = { me: 'Me', wife: 'Wife', son: 'Son', tenth: '10%' };
+const { FIELDS, ITEM_WHO, PEOPLE, fmt, sum, salaryOf, allocationOf, withTenth, esc, spendingsOf, incomesOf, spentOf, incomeOf, leftOf, spentTotals, incomeTotals, totals: calcTotals,
+  sortDesc, parseItem, addItem, removeItem, investmentLeftOf } = Savings;
+const LABELS = { me: 'Me', wife: 'Wife', son: 'Son', tenth: '10%', investment: 'Investment' };
 const open = new Set();
 const $ = id => document.getElementById(id);
 let data = [];
@@ -92,6 +92,12 @@ const money = n => `<span class="${n < 0 ? 'neg' : ''}">${fmt(n)}</span>`;
 
 // History columns: what is left per person (saved + income - spent), then the 10% part.
 const COLUMNS = [...PEOPLE, 'tenth'];
+
+// Investment: the month's My salary investment plus its income and spending lines.
+const investmentShown = investmentLeftOf;
+
+// Row total: investment plus what is left for each person; the 10% money is not included.
+const rowTotal = e => investmentShown(e) + PEOPLE.reduce((s, f) => s + leftOf(e, f), 0);
 
 const SECTIONS = [
   { kind: 'incomes', title: 'Income', items: incomesOf, empty: 'No income yet', add: 'Add income', hint: 'From where?' },
@@ -122,17 +128,18 @@ function sectionHtml(e, sec) {
   return `<div class="section">
     <h4>${sec.title}</h4>
     <ul class="spends">${list}</ul>
-    <form class="spendForm" data-month="${e.month}" data-kind="${sec.kind}">
-      <select name="who">${FIELDS.map(f => `<option value="${f}">${LABELS[f]}</option>`).join('')}</select>
-      <input name="note" placeholder="${sec.hint}">
-      <input name="amount" type="number" min="0.01" step="0.01" placeholder="Amount" required>
-      <button type="submit">${sec.add}</button>
-    </form>
   </div>`;
 }
 
 function detailsHtml(e) {
-  return `<tr class="child"><td colspan="7"><div class="sections">${SECTIONS.map(s => sectionHtml(e, s)).join('')}</div></td></tr>`;
+  const form = `<form class="spendForm" data-month="${e.month}">
+    <select name="kind">${SECTIONS.map(s => `<option value="${s.kind}">${s.title}</option>`).join('')}</select>
+    <select name="who">${ITEM_WHO.map(f => `<option value="${f}">${LABELS[f]}</option>`).join('')}</select>
+    <input name="note" placeholder="Note">
+    <input name="amount" type="number" min="0.01" step="0.01" placeholder="Amount" required>
+    <button type="submit">Add</button>
+  </form>`;
+  return `<tr class="child"><td colspan="8">${form}<div class="sections">${SECTIONS.map(s => sectionHtml(e, s)).join('')}</div></td></tr>`;
 }
 
 function render() {
@@ -150,15 +157,16 @@ function render() {
   $('rows').innerHTML = data.map(e => `
     <tr>
       <td>${e.month}</td>
+      <td>${fmt(investmentShown(e))}</td>
       ${COLUMNS.map(f => `<td>${money(leftOf(e, f))}</td>`).join('')}
-      <td><strong>${money(leftOf(e))}</strong></td>
+      <td><strong>${money(rowTotal(e))}</strong></td>
       <td>
         <button class="spend" data-spend="${e.month}">Income/Spending (${incomesOf(e).length}/${spendingsOf(e).length})</button>
       </td>
-    </tr>${open.has(e.month) ? detailsHtml(e) : ''}`).join('') || '<tr><td colspan="7">No data yet</td></tr>';
+    </tr>${open.has(e.month) ? detailsHtml(e) : ''}`).join('') || '<tr><td colspan="8">No data yet</td></tr>';
 
   $('foot').innerHTML = data.length
-    ? `<td>Total</td>${COLUMNS.map(f => `<td>${money(data.reduce((s, e) => s + leftOf(e, f), 0))}</td>`).join('')}<td><strong>${money(data.reduce((s, e) => s + leftOf(e), 0))}</strong></td><td></td>`
+    ? `<td>Total</td><td>${fmt(data.reduce((s, e) => s + investmentShown(e), 0))}</td>${COLUMNS.map(f => `<td>${money(data.reduce((s, e) => s + leftOf(e, f), 0))}</td>`).join('')}<td><strong>${money(data.reduce((s, e) => s + rowTotal(e), 0))}</strong></td><td></td>`
     : '';
 }
 
@@ -176,7 +184,7 @@ $('rows').addEventListener('submit', ev => {
   const f = ev.target;
   const spending = parseItem({ who: f.who.value, note: f.note.value, amount: f.amount.value });
   if (!spending) return;
-  data = addItem(data, f.dataset.month, f.dataset.kind, spending);
+  data = addItem(data, f.dataset.month, f.kind.value, spending);
   persist();
   render();
 });

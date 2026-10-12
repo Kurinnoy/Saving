@@ -9,12 +9,15 @@ const Savings = (() => {
 
   // Income and spending are child entries of a month; older data has none.
   const KINDS = ['incomes', 'spendings'];
+  // Income and spending lines can also belong to the investment, which is not one of the saved fields.
+  const INVESTMENT = 'investment';
+  const ITEM_WHO = [...FIELDS, INVESTMENT];
   const itemsOf = (e, kind) => e[kind] || [];
   const spendingsOf = e => itemsOf(e, 'spendings');
   const incomesOf = e => itemsOf(e, 'incomes');
 
   const sumItems = (e, kind, who) => itemsOf(e, kind)
-    .filter(s => !who || s.who === who)
+    .filter(s => who ? s.who === who : s.who !== INVESTMENT)
     .reduce((s, x) => s + x.amount, 0);
   const spentOf = (e, who) => sumItems(e, 'spendings', who);
   // Income = typed income lines + the per-person amounts of the month's My salary details.
@@ -184,6 +187,8 @@ const Savings = (() => {
   const investmentOf = e => e.monthlyInvestment ?? MONTHLY_INVESTMENT_DEFAULT;
   const setMonthlyInvestment = (data, month, amount) =>
     data.map(e => e.month === month ? { ...e, monthlyInvestment: Math.max(0, parseFloat(amount) || 0) } : e);
+  // Monthly investment of a month with a salary, plus its investment income, minus its investment spending.
+  const investmentLeftOf = e => (salaryOf(e) > 0 ? investmentOf(e) : 0) + sumItems(e, 'incomes', INVESTMENT) - sumItems(e, 'spendings', INVESTMENT);
 
   // Amounts set aside for each person in a month; every month starts from these defaults.
   const ALLOCATION_DEFAULT = { me: 275, wife: 275, son: 100 };
@@ -267,7 +272,7 @@ const Savings = (() => {
 
   const parseItem = ({ who, note, amount }) => {
     const value = parseFloat(amount);
-    if (!FIELDS.includes(who) || !(value > 0)) return null;
+    if (!ITEM_WHO.includes(who) || !(value > 0)) return null;
     return { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), who, note: String(note || '').trim(), amount: value };
   };
 
@@ -282,7 +287,7 @@ const Savings = (() => {
   const toCsv = data => ['Month,Salary,Net salary,10%,After 10%,Me,Wife,Son,Total,Income,Spent,Left',
     ...data.map(e => [e.month, salaryOf(e), netSalaryOf(e), e.tenth, afterTenthOf(e), ...PEOPLE.map(f => e[f]), sum(e), incomeOf(e), spentOf(e), leftOf(e)].join(','))].join('\n');
 
-  const isValidItem = s => s && typeof s.id === 'string' && FIELDS.includes(s.who)
+  const isValidItem = s => s && typeof s.id === 'string' && ITEM_WHO.includes(s.who)
     && typeof s.note === 'string' && Number.isFinite(s.amount);
 
   const isValidBackup = parsed => Array.isArray(parsed) && parsed.every(e =>
@@ -295,7 +300,7 @@ const Savings = (() => {
     && KINDS.every(k => e[k] === undefined || (Array.isArray(e[k]) && e[k].every(isValidItem))));
 
   return {
-    FIELDS, PEOPLE, fmt, sum, esc, salaryOf, salaryTotal, netSalaryOf, netSalaryTotal, tenthFromSalary, withTenth, afterTenthOf, afterTenthTotal, spendingsOf, incomesOf, spentOf, incomeOf, leftOf, spentTotals, incomeTotals, totals,
-    sortDesc, parseAmount, nextFreeMonth, shiftMonth, copyEntry, upsert, remove, parseEntry, setSalary, MONTHLY_PAY_UAH, MONTHLY_PAY_LABELS, payOf, setMonthlyPay, allocationOf, setAllocation, savingOf, setMonthlySaving, investmentOf, setMonthlyInvestment, salaryLeftOf, salaryIncomeOf, isValidGithubConfig, githubUrl, encodeContent, decodeContent, encryptText, decryptText, isEncrypted, rateDate, prevDate, uahToUsd, TENTH_SPEND_UAH, addTenthSpending, DEFAULT_SETTINGS, normalizeSettings, parseItem, addItem, removeItem, toCsv, isValidBackup
+    FIELDS, ITEM_WHO, PEOPLE, fmt, sum, esc, salaryOf, salaryTotal, netSalaryOf, netSalaryTotal, tenthFromSalary, withTenth, afterTenthOf, afterTenthTotal, spendingsOf, incomesOf, spentOf, incomeOf, leftOf, spentTotals, incomeTotals, totals,
+    sortDesc, parseAmount, nextFreeMonth, shiftMonth, copyEntry, upsert, remove, parseEntry, setSalary, MONTHLY_PAY_UAH, MONTHLY_PAY_LABELS, payOf, setMonthlyPay, allocationOf, setAllocation, savingOf, setMonthlySaving, investmentOf, setMonthlyInvestment, investmentLeftOf, salaryLeftOf, salaryIncomeOf, isValidGithubConfig, githubUrl, encodeContent, decodeContent, encryptText, decryptText, isEncrypted, rateDate, prevDate, uahToUsd, TENTH_SPEND_UAH, addTenthSpending, DEFAULT_SETTINGS, normalizeSettings, parseItem, addItem, removeItem, toCsv, isValidBackup
   };
 })();
