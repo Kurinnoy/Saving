@@ -42,11 +42,15 @@ const GitSync = (() => {
   // The data lives in sessionStorage: it is gone when the tab or browser session closes.
   const data = () => JSON.parse(sessionStorage.getItem(KEY) || '[]');
 
+  // Set by Clear history so that one deliberate empty save is allowed.
+  let allowEmpty = false;
+  const allowEmptyOnce = () => { allowEmpty = true; };
+
   async function push(c) {
     if (!c.password) throw new Error('Set an encryption password on the Config page: data is only sent to GitHub encrypted.');
     if (sessionStorage.getItem(KEY) === null) throw new Error('No data is loaded in this session.');
     const existing = await getFile(c);
-    if (existing && data().length === 0 && (await fetchRemote(c)).length > 0) {
+    if (existing && !allowEmpty && data().length === 0 && (await fetchRemote(c)).length > 0) {
       throw new Error('Refusing to replace the data in GitHub with an empty list');
     }
     const text = await Savings.encryptText(JSON.stringify(data(), null, 2), c.password);
@@ -137,8 +141,9 @@ const GitSync = (() => {
     running = true;
     show('Saving to GitHub...', true);
     try {
-      if (sessionStorage.getItem(SYNCED_KEY) !== '1') await checkBeforeFirstPush(c);
+      if (!allowEmpty && sessionStorage.getItem(SYNCED_KEY) !== '1') await checkBeforeFirstPush(c);
       await push(c);
+      allowEmpty = false;
       show('Saved to GitHub', true);
     } catch (err) {
       show(`GitHub save failed: ${err.message}`, false);
@@ -249,5 +254,5 @@ const GitSync = (() => {
     addEventListener('pagehide', stamp);
   })();
 
-  return { config, getFile, push, schedule, ready, askPassword, SYNCED_KEY, CFG_KEY, PW_KEY };
+  return { config, getFile, push, schedule, allowEmptyOnce, ready, askPassword, SYNCED_KEY, CFG_KEY, PW_KEY };
 })();

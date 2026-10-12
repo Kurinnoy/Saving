@@ -78,7 +78,7 @@
 <script src="settings.js"></script>
 <script>
 const KEY = 'familySavings';
-const { fmt, PEOPLE, copyEntry, remove, salaryOf, salaryTotal, netSalaryOf, withTenth, sortDesc, setSalary, MONTHLY_PAY_UAH, MONTHLY_PAY_LABELS, payOf, setMonthlyPay, allocationOf, setAllocation, savingOf, setMonthlySaving, investmentOf, setMonthlyInvestment, salaryLeftOf, rateDate, prevDate, uahToUsd, addTenthSpending } = Savings;
+const { fmt, PEOPLE, shiftMonth, copyEntry, remove, salaryOf, salaryTotal, netSalaryOf, withTenth, sortDesc, setSalary, MONTHLY_PAY_UAH, MONTHLY_PAY_LABELS, payOf, setMonthlyPay, allocationOf, setAllocation, savingOf, setMonthlySaving, investmentOf, setMonthlyInvestment, salaryLeftOf, rateDate, prevDate, uahToUsd, addTenthSpending } = Savings;
 const RATES_KEY = 'uahUsdRates';
 const LABELS = { me: 'me', wife: 'wife', son: 'son' };
 const rates = JSON.parse(localStorage.getItem(RATES_KEY) || '{}');
@@ -188,6 +188,7 @@ $('form').addEventListener('submit', ev => {
   persist();
   render();
   resetForm();
+  $('month').value = shiftMonth(month, 1);
   if (isNew && salaryOf(data.find(e => e.month === month)) > 0) addTenthForNewLine(month);
 });
 
@@ -197,6 +198,7 @@ $('clearHistory').addEventListener('click', () => {
   if (!data.length || !confirm('Delete all months, including their income and spending? This also empties Family Savings.')) return;
   data = [];
   open.clear();
+  GitSync.allowEmptyOnce();
   persist();
   render();
 });
