@@ -123,8 +123,8 @@ const Savings = (() => {
   };
 
   // Fixed monthly pay in UAH, converted to USD with the rate of the month's last day (or today for the current month).
-  const MONTHLY_PAY_UAH = [13500, 5500, 600];
-  const MONTHLY_PAY_LABELS = ['Monthly lease payment', 'Monthly utility bills', 'Internet fee'];
+  const MONTHLY_PAY_UAH = [13500, 5500, 600, 40000];
+  const MONTHLY_PAY_LABELS = ['Monthly lease payment', 'Monthly utility bills', 'Internet fee', 'Monthly expenses'];
   const pad2 = n => String(n).padStart(2, '0');
   const rateDate = (month, today = new Date()) => {
     const [y, m] = month.split('-').map(Number);

@@ -68,6 +68,7 @@
       <div><label for="d_pay0" id="d_pay0_label"></label><input id="d_pay0" type="number" min="0" step="0.01"></div>
       <div><label for="d_pay1" id="d_pay1_label"></label><input id="d_pay1" type="number" min="0" step="0.01"></div>
       <div><label for="d_pay2" id="d_pay2_label"></label><input id="d_pay2" type="number" min="0" step="0.01"></div>
+      <div><label for="d_pay3" id="d_pay3_label"></label><input id="d_pay3" type="number" min="0" step="0.01"></div>
       <div><label for="d_tenth">Spending from 10% (UAH)</label><input id="d_tenth" type="number" min="0" step="0.01"></div>
     </form>
     <div class="tools">
@@ -75,7 +76,7 @@
       <button type="button" id="resetDefaults" class="secondary">Reset to built-in values</button>
     </div>
     <div id="defStatus" role="status"></div>
-    <p class="note">These values are copied into every new line you add on the My salary page. Lines that already exist keep their own values. The three amounts below the per-person ones are in UAH.</p>
+    <p class="note">These values are copied into every new line you add on the My salary page. Lines that already exist keep their own values. The four amounts below the per-person ones are in UAH.</p>
   </div>
 </main>
 
@@ -132,7 +133,7 @@ async function run(work) {
 $('form').addEventListener('submit', ev => ev.preventDefault());
 
 const { MONTHLY_PAY_LABELS } = Savings;
-const PAY_IDS = ['d_pay0', 'd_pay1', 'd_pay2'];
+const PAY_IDS = ['d_pay0', 'd_pay1', 'd_pay2', 'd_pay3'];
 PAY_IDS.forEach((id, i) => { $(`${id}_label`).textContent = `${MONTHLY_PAY_LABELS[i]} (UAH)`; });
 
 function fillDefaults(s) {
