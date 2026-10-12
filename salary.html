@@ -28,6 +28,7 @@
   .scroll { overflow-x: auto; }
   .head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
   .note { font-size: 12px; color: #777; }
+  #formError { display: none; margin-top: 12px; padding: 12px 16px; border-radius: 6px; background: #fde4e4; color: #d00000; font-size: 20px; font-weight: bold; }
   .neg { color: #d33; }
   button.details { background: #e08a00; padding: 4px 8px; font-size: 13px; }
   tr.child td { text-align: left; background: #fafafa; }
@@ -50,13 +51,14 @@
     <h2 id="formTitle">Add salary</h2>
     <form id="form">
       <div><label for="month">Month</label><input type="month" id="month" required></div>
-      <div><label for="salary">My salary</label><input type="number" id="salary" min="0" step="0.01" value="0"></div>
+      <div><label for="salary">My salary</label><input type="text" inputmode="decimal" id="salary" value="0"></div>
       <div>
         <button type="submit">Save</button>
         <button type="button" class="secondary" id="cancel" hidden>Cancel</button>
       </div>
     </form>
-    <p class="note">Saving a month that already exists replaces its salary. Net salary is salary minus 5%; 10% is taken from the net salary.</p>
+    <div id="formError" role="alert"></div>
+    <p class="note">Saving a month that already exists is not allowed: use Edit on its line. Net salary is salary minus 5%; 10% is taken from the net salary.</p>
   </div>
 
   <div class="card">
@@ -86,10 +88,18 @@ const pending = new Set();
 const $ = id => document.getElementById(id);
 const open = new Set();
 let data = [];
+let editing = null;
+
+const showError = text => {
+  $('formError').textContent = text;
+  $('formError').style.display = text ? 'block' : 'none';
+};
 
 const persist = () => { sessionStorage.setItem(KEY, JSON.stringify(data)); GitSync.schedule(); };
 
 function resetForm() {
+  editing = null;
+  showError('');
   $('form').reset();
   $('month').value = new Date().toISOString().slice(0, 7);
   $('formTitle').textContent = 'Add salary';
@@ -183,7 +193,13 @@ async function addTenthForNewLine(month) {
 $('form').addEventListener('submit', ev => {
   ev.preventDefault();
   const month = $('month').value;
-  const isNew = !(data.find(e => e.month === month) && salaryOf(data.find(e => e.month === month)) > 0);
+  const existing = data.find(e => e.month === month);
+  if (existing && salaryOf(existing) > 0 && editing !== month) {
+    showError(`${month} already exists. Use Edit on its line in the history to change it.`);
+    return;
+  }
+  showError('');
+  const isNew = !(existing && salaryOf(existing) > 0);
   data = setSalary(data, month, $('salary').value, AppSettings.load());
   persist();
   render();
@@ -193,6 +209,7 @@ $('form').addEventListener('submit', ev => {
 });
 
 $('cancel').addEventListener('click', resetForm);
+$('month').addEventListener('input', () => showError(''));
 
 $('clearHistory').addEventListener('click', () => {
   if (!data.length || !confirm('Delete all months, including their income and spending? This also empties Family Savings.')) return;
@@ -227,6 +244,8 @@ $('rows').addEventListener('click', ev => {
     render();
   } else if (edit) {
     const e = data.find(x => x.month === edit);
+    editing = e.month;
+    showError('');
     $('month').value = e.month;
     $('salary').value = salaryOf(e);
     $('formTitle').textContent = 'Edit salary';

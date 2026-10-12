@@ -125,8 +125,15 @@ const Savings = (() => {
 
   // Sets only the salary of a month; a month that does not exist yet is created with zero savings.
   // A new salary line (no salary before) also gets the given default settings as its own details.
+  // Accepts "4 655,81" as well as "4655.81".
+  const parseAmount = v => {
+    let s = String(v ?? '').replace(/[\s\u00a0]/g, '');
+    s = s.includes(',') && s.includes('.') ? s.replace(/,/g, '') : s.replace(',', '.');
+    return parseFloat(s);
+  };
+
   const setSalary = (data, month, salary, settings) => {
-    const value = Math.max(0, parseFloat(salary) || 0);
+    const value = Math.max(0, parseAmount(salary) || 0);
     const existing = data.find(e => e.month === month);
     const isNewLine = !existing || !(salaryOf(existing) > 0);
     const defaults = settings && isNewLine && value > 0
@@ -289,6 +296,6 @@ const Savings = (() => {
 
   return {
     FIELDS, PEOPLE, fmt, sum, esc, salaryOf, salaryTotal, netSalaryOf, netSalaryTotal, tenthFromSalary, withTenth, afterTenthOf, afterTenthTotal, spendingsOf, incomesOf, spentOf, incomeOf, leftOf, spentTotals, incomeTotals, totals,
-    sortDesc, nextFreeMonth, shiftMonth, copyEntry, upsert, remove, parseEntry, setSalary, MONTHLY_PAY_UAH, MONTHLY_PAY_LABELS, payOf, setMonthlyPay, allocationOf, setAllocation, savingOf, setMonthlySaving, investmentOf, setMonthlyInvestment, salaryLeftOf, salaryIncomeOf, isValidGithubConfig, githubUrl, encodeContent, decodeContent, encryptText, decryptText, isEncrypted, rateDate, prevDate, uahToUsd, TENTH_SPEND_UAH, addTenthSpending, DEFAULT_SETTINGS, normalizeSettings, parseItem, addItem, removeItem, toCsv, isValidBackup
+    sortDesc, parseAmount, nextFreeMonth, shiftMonth, copyEntry, upsert, remove, parseEntry, setSalary, MONTHLY_PAY_UAH, MONTHLY_PAY_LABELS, payOf, setMonthlyPay, allocationOf, setAllocation, savingOf, setMonthlySaving, investmentOf, setMonthlyInvestment, salaryLeftOf, salaryIncomeOf, isValidGithubConfig, githubUrl, encodeContent, decodeContent, encryptText, decryptText, isEncrypted, rateDate, prevDate, uahToUsd, TENTH_SPEND_UAH, addTenthSpending, DEFAULT_SETTINGS, normalizeSettings, parseItem, addItem, removeItem, toCsv, isValidBackup
   };
 })();

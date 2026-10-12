@@ -229,6 +229,10 @@ describe('salary', () => {
 });
 
 describe('setSalary (My salary page)', () => {
+  it('accepts a space and a decimal comma', () => eq(setSalary([], '2026-01', '4 655,81')[0].salary, 4655.81));
+  it('accepts a non-breaking space', () => eq(setSalary([], '2026-01', '4\u00a0655,81')[0].salary, 4655.81));
+  it('accepts a comma as thousands separator when there is a dot', () => eq(setSalary([], '2026-01', '4,655.81')[0].salary, 4655.81));
+  it('still accepts a plain number', () => eq(setSalary([], '2026-01', '4655.81')[0].salary, 4655.81));
   it('sets the salary and recalculates 10% of an existing month', () => {
     const r = setSalary([E('2026-01', 1, 2, 3, 4)], '2026-01', '1000');
     eq([r[0].salary, r[0].tenth, r[0].me], [1000, 95, 1]);
