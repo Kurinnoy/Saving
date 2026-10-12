@@ -26,6 +26,9 @@
   #status { margin-top: 12px; padding: 8px 12px; border-radius: 6px; display: none; }
   #status.ok { display: block; background: #e3f6e8; color: #1a7a35; }
   #status.err { display: block; background: #fde4e4; color: #b00020; }
+  #defStatus { margin-top: 12px; padding: 8px 12px; border-radius: 6px; display: none; }
+  #defStatus.ok { display: block; background: #e3f6e8; color: #1a7a35; }
+  #defStatus.err { display: block; background: #fde4e4; color: #b00020; }
 </style>
 </head>
 <body>
@@ -53,10 +56,32 @@
     <div id="status" role="status"></div>
     <p class="note">Use a fine-grained token limited to this one repository with "Contents: Read and write". The token and settings are stored in this browser permanently; the encryption password is kept only while this tab is open and must be entered again after a reload or restart. The data file in GitHub is always encrypted with your encryption password; if you lose the password the file cannot be recovered.</p>
   </div>
+
+  <div class="card">
+    <h2>Defaults for a new salary line</h2>
+    <form id="defaultsForm" autocomplete="off">
+      <div><label for="d_saving">Monthly saving ($)</label><input id="d_saving" type="number" min="0" step="0.01"></div>
+      <div><label for="d_invest">Monthly investment ($)</label><input id="d_invest" type="number" min="0" step="0.01"></div>
+      <div><label for="d_me">For me</label><input id="d_me" type="number" min="0" step="0.01"></div>
+      <div><label for="d_wife">For wife</label><input id="d_wife" type="number" min="0" step="0.01"></div>
+      <div><label for="d_son">For son</label><input id="d_son" type="number" min="0" step="0.01"></div>
+      <div><label for="d_pay0" id="d_pay0_label"></label><input id="d_pay0" type="number" min="0" step="0.01"></div>
+      <div><label for="d_pay1" id="d_pay1_label"></label><input id="d_pay1" type="number" min="0" step="0.01"></div>
+      <div><label for="d_pay2" id="d_pay2_label"></label><input id="d_pay2" type="number" min="0" step="0.01"></div>
+      <div><label for="d_tenth">Spending from 10% (UAH)</label><input id="d_tenth" type="number" min="0" step="0.01"></div>
+    </form>
+    <div class="tools">
+      <button type="button" id="saveDefaults">Save defaults</button>
+      <button type="button" id="resetDefaults" class="secondary">Reset to built-in values</button>
+    </div>
+    <div id="defStatus" role="status"></div>
+    <p class="note">These values are copied into every new line you add on the My salary page. Lines that already exist keep their own values. The three amounts below the per-person ones are in UAH.</p>
+  </div>
 </main>
 
 <script src="logic.js"></script>
 <script src="sync.js"></script>
+<script src="settings.js"></script>
 <script>
 const KEY = 'familySavings';
 const { CFG_KEY, SYNCED_KEY, PW_KEY, getFile, push } = GitSync;
@@ -105,6 +130,45 @@ async function run(work) {
 }
 
 $('form').addEventListener('submit', ev => ev.preventDefault());
+
+const { MONTHLY_PAY_LABELS } = Savings;
+const PAY_IDS = ['d_pay0', 'd_pay1', 'd_pay2'];
+PAY_IDS.forEach((id, i) => { $(`${id}_label`).textContent = `${MONTHLY_PAY_LABELS[i]} (UAH)`; });
+
+function fillDefaults(s) {
+  $('d_saving').value = s.monthlySaving;
+  $('d_invest').value = s.monthlyInvestment;
+  ['me', 'wife', 'son'].forEach(f => { $(`d_${f}`).value = s.allocation[f]; });
+  PAY_IDS.forEach((id, i) => { $(id).value = s.monthlyPay[i]; });
+  $('d_tenth').value = s.tenthSpendUah;
+}
+fillDefaults(AppSettings.load());
+
+function defStatus(text, ok) {
+  const s = $('defStatus');
+  s.textContent = text;
+  s.className = ok ? 'ok' : 'err';
+}
+
+$('defaultsForm').addEventListener('submit', ev => ev.preventDefault());
+
+$('saveDefaults').addEventListener('click', () => {
+  const values = {
+    monthlySaving: $('d_saving').value,
+    monthlyInvestment: $('d_invest').value,
+    allocation: Object.fromEntries(['me', 'wife', 'son'].map(f => [f, $(`d_${f}`).value])),
+    monthlyPay: PAY_IDS.map(id => $(id).value),
+    tenthSpendUah: $('d_tenth').value
+  };
+  fillDefaults(AppSettings.save(values));
+  defStatus('Defaults saved. They apply to new salary lines.', true);
+});
+
+$('resetDefaults').addEventListener('click', () => {
+  AppSettings.reset();
+  fillDefaults(AppSettings.load());
+  defStatus('Built-in values restored.', true);
+});
 
 $('saveCfg').addEventListener('click', () => {
   if (validConfig()) status('Settings saved.', true);

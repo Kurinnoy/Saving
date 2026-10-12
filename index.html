@@ -164,7 +164,7 @@ function render() {
   const small = k => `<small>Income ${fmt(income[k])} | Spent ${fmt(spent[k])} | Left ${money(totals[k] + income[k] - spent[k])}</small>`;
 
   $('totals').innerHTML =
-    [['My money', 'me'], ['Wife money', 'wife'], ['Son money', 'son']]
+    [['My money', 'me'], ['Wife money', 'wife'], ['Son money', 'son'], ['10% money', 'tenth']]
       .map(([l, f]) => `<div class="total"><span>${l}</span><strong>${fmt(totals[f])}</strong>${small(f)}</div>`).join('');
 
   $('rows').innerHTML = data.map(e => `
