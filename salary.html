@@ -26,6 +26,7 @@
   th:first-child, td:first-child { text-align: left; }
   #foot td { font-weight: bold; }
   .scroll { overflow-x: auto; }
+  .head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
   .note { font-size: 12px; color: #777; }
   .neg { color: #d33; }
   button.details { background: #e08a00; padding: 4px 8px; font-size: 13px; }
@@ -59,7 +60,7 @@
   </div>
 
   <div class="card">
-    <h2>History</h2>
+    <div class="head"><h2>History</h2><button type="button" class="danger" id="clearHistory">Clear history</button></div>
     <div class="scroll">
       <table>
         <thead>
@@ -77,7 +78,7 @@
 <script src="settings.js"></script>
 <script>
 const KEY = 'familySavings';
-const { fmt, PEOPLE, copyEntry, salaryOf, salaryTotal, netSalaryOf, withTenth, sortDesc, setSalary, MONTHLY_PAY_UAH, MONTHLY_PAY_LABELS, payOf, setMonthlyPay, allocationOf, setAllocation, savingOf, setMonthlySaving, investmentOf, setMonthlyInvestment, salaryLeftOf, rateDate, prevDate, uahToUsd, addTenthSpending } = Savings;
+const { fmt, PEOPLE, copyEntry, remove, salaryOf, salaryTotal, netSalaryOf, withTenth, sortDesc, setSalary, MONTHLY_PAY_UAH, MONTHLY_PAY_LABELS, payOf, setMonthlyPay, allocationOf, setAllocation, savingOf, setMonthlySaving, investmentOf, setMonthlyInvestment, salaryLeftOf, rateDate, prevDate, uahToUsd, addTenthSpending } = Savings;
 const RATES_KEY = 'uahUsdRates';
 const LABELS = { me: 'me', wife: 'wife', son: 'son' };
 const rates = JSON.parse(localStorage.getItem(RATES_KEY) || '{}');
@@ -160,7 +161,7 @@ function render() {
         <button class="details" data-details="${e.month}">Details</button>
         <button class="copy" data-copy="${e.month}">Copy</button>
         <button class="edit" data-edit="${e.month}">Edit</button>
-        <button class="danger" data-clear="${e.month}">Clear</button>
+        <button class="danger" data-clear="${e.month}">Delete</button>
       </td>
     </tr>${open.has(e.month) ? childHtml(e) : ''}`).join('') || '<tr><td colspan="4">No salary yet</td></tr>';
 
@@ -192,6 +193,14 @@ $('form').addEventListener('submit', ev => {
 
 $('cancel').addEventListener('click', resetForm);
 
+$('clearHistory').addEventListener('click', () => {
+  if (!data.length || !confirm('Delete all months, including their income and spending? This also empties Family Savings.')) return;
+  data = [];
+  open.clear();
+  persist();
+  render();
+});
+
 $('rows').addEventListener('submit', ev => {
   ev.preventDefault();
   const f = ev.target;
@@ -205,11 +214,11 @@ $('rows').addEventListener('submit', ev => {
 $('rows').addEventListener('click', ev => {
   const { edit, clear, details, copy } = ev.target.dataset;
   if (copy) {
-    const before = new Set(data.map(e => e.month));
+    const before = new Set(data.filter(e => salaryOf(e) > 0).map(e => e.month));
     data = copyEntry(data, copy);
     persist();
     render();
-    const added = data.find(e => !before.has(e.month));
+    const added = data.find(e => salaryOf(e) > 0 && !before.has(e.month));
     if (added) addTenthForNewLine(added.month);
   } else if (details) {
     open.has(details) ? open.delete(details) : open.add(details);
@@ -221,8 +230,8 @@ $('rows').addEventListener('click', ev => {
     $('formTitle').textContent = 'Edit salary';
     $('cancel').hidden = false;
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  } else if (clear && confirm(`Clear salary of ${clear}?`)) {
-    data = setSalary(data, clear, 0);
+  } else if (clear && confirm(`Delete ${clear}? Its line in Family Savings, with its income and spending, will be removed too.`)) {
+    data = remove(data, clear);
     persist();
     render();
   }

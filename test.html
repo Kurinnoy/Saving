@@ -97,12 +97,15 @@ describe('sortDesc', () => {
 });
 
 describe('nextFreeMonth', () => {
+  const W = month => ({ ...E(month), salary: 100 });
   it('returns the following month', () => eq(nextFreeMonth([E('2026-05')], '2026-05'), '2026-06'));
   it('rolls over to the next year', () => eq(nextFreeMonth([E('2026-12')], '2026-12'), '2027-01'));
-  it('skips months that already exist', () =>
-    eq(nextFreeMonth([E('2026-05'), E('2026-06'), E('2026-07')], '2026-05'), '2026-08'));
+  it('skips months that already have a salary line', () =>
+    eq(nextFreeMonth([W('2026-05'), W('2026-06'), W('2026-07')], '2026-05'), '2026-08'));
   it('skips across a year boundary', () =>
-    eq(nextFreeMonth([E('2026-11'), E('2026-12')], '2026-11'), '2027-01'));
+    eq(nextFreeMonth([W('2026-11'), W('2026-12')], '2026-11'), '2027-01'));
+  it('uses a following month that has no salary', () =>
+    eq(nextFreeMonth([W('2026-12'), E('2027-01')], '2026-12'), '2027-01'));
 });
 
 describe('copyEntry (Copy button)', () => {
@@ -112,10 +115,27 @@ describe('copyEntry (Copy button)', () => {
     eq(r[1], E('2026-11', 1, 2, 3, 4));
   });
   it('keeps the original line', () => eq(copyEntry([E('2026-10', 5)], '2026-10')[0], E('2026-10', 5)));
-  it('does not overwrite an existing month', () => {
-    const r = copyEntry([E('2026-10', 1), E('2026-11', 9)], '2026-10');
+  it('does not overwrite a month that has a salary line', () => {
+    const W = (m, me) => ({ ...E(m, me), salary: 100 });
+    const r = copyEntry([E('2026-10', 1), W('2026-11', 9), W('2026-09', 7)], '2026-10');
     eq(r.find(e => e.month === '2026-11').me, 9);
+    eq(r.find(e => e.month === '2026-09').me, 7);
     eq(r.find(e => e.month === '2026-12').me, 1);
+  });
+  it('goes to the previous month when the next one has a salary line', () => {
+    const r = copyEntry([E('2026-10', 1), { ...E('2026-11', 9), salary: 100 }], '2026-10');
+    eq(r.find(e => e.month === '2026-09').me, 1);
+    eq(r.length, 3);
+  });
+  it('previous month works across a year boundary', () => {
+    const r = copyEntry([E('2027-01', 1), { ...E('2027-02', 9), salary: 100 }], '2027-01');
+    eq(r.find(e => e.month === '2026-12').me, 1);
+  });
+  it('reuses a month without salary and keeps its income and spending', () => {
+    const r = copyEntry([E('2026-10', 1), { ...E('2026-11', 9), incomes: [S('a', 'me', 5)] }], '2026-10');
+    eq(r.length, 2);
+    const e = r.find(x => x.month === '2026-11');
+    eq([e.me, incomesOf(e).length], [1, 1]);
   });
   it('ignores an unknown month', () => eq(copyEntry([E('2026-10')], '1999-01').length, 1));
   it('does not change the original array', () => {

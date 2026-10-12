@@ -47,6 +47,7 @@
   th:first-child, td:first-child { text-align: left; }
   #foot td { font-weight: bold; }
   .scroll { overflow-x: auto; }
+  .head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
   .tools { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
   .note { font-size: 12px; color: #777; }
 </style>
@@ -61,7 +62,7 @@
   </div>
 
   <div class="card">
-    <h2>History</h2>
+    <div class="head"><h2>History</h2><button type="button" class="danger" id="clearHistory">Clear history</button></div>
     <div class="scroll">
       <table id="table">
         <thead>
@@ -159,6 +160,14 @@ function render() {
     ? `<td>Total</td>${COLUMNS.map(f => `<td>${money(data.reduce((s, e) => s + leftOf(e, f), 0))}</td>`).join('')}<td><strong>${money(data.reduce((s, e) => s + leftOf(e), 0))}</strong></td><td></td>`
     : '';
 }
+
+$('clearHistory').addEventListener('click', () => {
+  if (!data.length || !confirm('Delete all months, including their income and spending? This also empties My salary.')) return;
+  data = [];
+  open.clear();
+  persist();
+  render();
+});
 
 $('rows').addEventListener('submit', ev => {
   ev.preventDefault();

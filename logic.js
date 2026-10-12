@@ -45,7 +45,7 @@ const Savings = (() => {
 
   const sortDesc = data => [...data].sort((a, b) => b.month.localeCompare(a.month));
 
-  // Months are unique, so a copy goes to the next month that is still free.
+  // Months are unique, so a copy goes to the next month without a salary line (those are not shown on My salary).
   const nextFreeMonth = (data, month) => {
     let [y, m] = month.split('-').map(Number);
     let next;
@@ -53,15 +53,31 @@ const Savings = (() => {
       m++;
       if (m > 12) { m = 1; y++; }
       next = `${y}-${String(m).padStart(2, '0')}`;
-    } while (data.some(x => x.month === next));
+    } while (data.some(x => x.month === next && salaryOf(x) > 0));
     return next;
+  };
+
+  // When the next month already has a salary line, a copy goes to the previous month if that one is free.
+  const shiftMonth = (month, by) => {
+    const [y, m] = month.split('-').map(Number);
+    const d = new Date(Date.UTC(y, m - 1 + by, 1));
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+  };
+  const copyTarget = (data, month) => {
+    const hasSalary = m => data.some(x => x.month === m && salaryOf(x) > 0);
+    const prev = shiftMonth(month, -1);
+    return hasSalary(shiftMonth(month, 1)) && !hasSalary(prev) ? prev : nextFreeMonth(data, month);
   };
 
   const copyEntry = (data, month) => {
     const e = data.find(x => x.month === month);
     if (!e) return data;
     const { spendings, incomes, ...saved } = e;
-    return [...data, { ...saved, month: nextFreeMonth(data, month) }];
+    const target = copyTarget(data, month);
+    const old = data.find(x => x.month === target);
+    const copy = { ...saved, month: target };
+    if (old) KINDS.forEach(k => { if (old[k]) copy[k] = old[k]; });
+    return [...data.filter(x => x.month !== target), copy];
   };
 
   // Saving a month again keeps its income and spending lines.
