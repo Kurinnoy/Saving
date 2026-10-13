@@ -9,15 +9,17 @@ const Savings = (() => {
 
   // Income and spending are child entries of a month; older data has none.
   const KINDS = ['incomes', 'spendings'];
-  // Income and spending lines can also belong to the investment, which is not one of the saved fields.
+  // Income and spending lines can also belong to the investment or the monthly saving, which are not saved fields.
   const INVESTMENT = 'investment';
-  const ITEM_WHO = [...FIELDS, INVESTMENT];
+  const SAVING = 'saving';
+  const EXTRA_WHO = [INVESTMENT, SAVING];
+  const ITEM_WHO = [...FIELDS, ...EXTRA_WHO];
   const itemsOf = (e, kind) => e[kind] || [];
   const spendingsOf = e => itemsOf(e, 'spendings');
   const incomesOf = e => itemsOf(e, 'incomes');
 
   const sumItems = (e, kind, who) => itemsOf(e, kind)
-    .filter(s => who ? s.who === who : s.who !== INVESTMENT)
+    .filter(s => who ? s.who === who : !EXTRA_WHO.includes(s.who))
     .reduce((s, x) => s + x.amount, 0);
   const spentOf = (e, who) => sumItems(e, 'spendings', who);
   // Income = typed income lines + the per-person amounts of the month's My salary details.
@@ -179,6 +181,8 @@ const Savings = (() => {
   // Monthly saving in USD; every month starts from the default.
   const MONTHLY_SAVING_DEFAULT = 1000;
   const savingOf = e => e.monthlySaving ?? MONTHLY_SAVING_DEFAULT;
+  // Monthly saving of a month with a salary, plus its saving income, minus its saving spending.
+  const savingLeftOf = e => (salaryOf(e) > 0 ? savingOf(e) : 0) + sumItems(e, 'incomes', SAVING) - sumItems(e, 'spendings', SAVING);
   const setMonthlySaving = (data, month, amount) =>
     data.map(e => e.month === month ? { ...e, monthlySaving: Math.max(0, parseFloat(amount) || 0) } : e);
 
@@ -301,6 +305,6 @@ const Savings = (() => {
 
   return {
     FIELDS, ITEM_WHO, PEOPLE, fmt, sum, esc, salaryOf, salaryTotal, netSalaryOf, netSalaryTotal, tenthFromSalary, withTenth, afterTenthOf, afterTenthTotal, spendingsOf, incomesOf, spentOf, incomeOf, leftOf, spentTotals, incomeTotals, totals,
-    sortDesc, parseAmount, nextFreeMonth, shiftMonth, copyEntry, upsert, remove, parseEntry, setSalary, MONTHLY_PAY_UAH, MONTHLY_PAY_LABELS, payOf, setMonthlyPay, allocationOf, setAllocation, savingOf, setMonthlySaving, investmentOf, setMonthlyInvestment, investmentLeftOf, salaryLeftOf, salaryIncomeOf, isValidGithubConfig, githubUrl, encodeContent, decodeContent, encryptText, decryptText, isEncrypted, rateDate, prevDate, uahToUsd, TENTH_SPEND_UAH, addTenthSpending, DEFAULT_SETTINGS, normalizeSettings, parseItem, addItem, removeItem, toCsv, isValidBackup
+    sortDesc, parseAmount, nextFreeMonth, shiftMonth, copyEntry, upsert, remove, parseEntry, setSalary, MONTHLY_PAY_UAH, MONTHLY_PAY_LABELS, payOf, setMonthlyPay, allocationOf, setAllocation, savingOf, setMonthlySaving, savingLeftOf, investmentOf, setMonthlyInvestment, investmentLeftOf, salaryLeftOf, salaryIncomeOf, isValidGithubConfig, githubUrl, encodeContent, decodeContent, encryptText, decryptText, isEncrypted, rateDate, prevDate, uahToUsd, TENTH_SPEND_UAH, addTenthSpending, DEFAULT_SETTINGS, normalizeSettings, parseItem, addItem, removeItem, toCsv, isValidBackup
   };
 })();

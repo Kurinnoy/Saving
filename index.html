@@ -10,11 +10,12 @@
   main { max-width: 900px; margin: 0 auto; padding: 20px; }
   h1 { margin-top: 0; }
   .card { background: #fff; border-radius: 10px; padding: 16px; margin-bottom: 20px; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
-  .totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
-  .total { background: #eef3ff; border-radius: 8px; padding: 12px; text-align: center; }
+  .totals { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+  @media (max-width: 700px) { .totals { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); } }
+  .total { background: #eef3ff; border-radius: 8px; padding: 10px 6px; text-align: center; }
   .total.all { background: #e3f6e8; }
   .total span { display: block; font-size: 13px; color: #555; }
-  .total strong { font-size: 22px; }
+  .total strong { font-size: 18px; }
   form { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; align-items: end; }
   label { font-size: 13px; color: #555; display: block; }
   input { width: 100%; padding: 8px; font-size: 16px; border: 1px solid #bbb; border-radius: 6px; }
@@ -34,7 +35,7 @@
   .sections { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; }
   .section h4 { margin: 0 0 6px; }
   .spends li { display: flex; gap: 12px; align-items: center; padding: 3px 0; }
-  .spends .who { width: 90px; font-weight: bold; }
+  .spends .who { width: 120px; font-weight: bold; }
   .spends .amt { width: 100px; text-align: right; }
   .spends .what { flex: 1; }
   .spends li.fixed { color: #555; }
@@ -42,6 +43,7 @@
   .spendForm { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
   .spendForm input, .spendForm select { width: auto; padding: 6px; font-size: 14px; }
   .spendForm input[name=note] { flex: 1; min-width: 120px; }
+  .incomeToggle { display: flex; align-items: center; gap: 4px; font-size: 14px; color: #222; cursor: pointer; }
   table { width: 100%; border-collapse: collapse; }
   th, td { padding: 8px; text-align: right; border-bottom: 1px solid #e3e3e3; }
   th:first-child, td:first-child { text-align: left; }
@@ -67,7 +69,7 @@
       <table id="table">
         <thead>
           <tr id="foot"></tr>
-          <tr><th>Month</th><th>Investment</th><th>Me</th><th>Wife</th><th>Son</th><th>10%</th><th>Total</th><th></th></tr>
+          <tr><th>Month</th><th>Monthly saving</th><th>Investment</th><th>Me</th><th>Wife</th><th>Son</th><th>10%</th><th>Total</th><th></th></tr>
         </thead>
         <tbody id="rows"></tbody>
       </table>
@@ -80,8 +82,8 @@
 <script>
 const KEY = 'familySavings';
 const { FIELDS, ITEM_WHO, PEOPLE, fmt, sum, salaryOf, allocationOf, withTenth, esc, spendingsOf, incomesOf, spentOf, incomeOf, leftOf, spentTotals, incomeTotals, totals: calcTotals,
-  sortDesc, parseItem, addItem, removeItem, investmentLeftOf } = Savings;
-const LABELS = { me: 'Me', wife: 'Wife', son: 'Son', tenth: '10%', investment: 'Investment' };
+  sortDesc, parseItem, addItem, removeItem, investmentLeftOf, savingLeftOf } = Savings;
+const LABELS = { me: 'Me', wife: 'Wife', son: 'Son', tenth: '10%', investment: 'Investment', saving: 'Monthly saving' };
 const open = new Set();
 const $ = id => document.getElementById(id);
 let data = [];
@@ -96,8 +98,11 @@ const COLUMNS = [...PEOPLE, 'tenth'];
 // Investment: the month's My salary investment plus its income and spending lines.
 const investmentShown = investmentLeftOf;
 
-// Row total: investment plus what is left for each person; the 10% money is not included.
-const rowTotal = e => investmentShown(e) + PEOPLE.reduce((s, f) => s + leftOf(e, f), 0);
+// Monthly saving: the month's My salary saving plus its income and spending lines.
+const savingShown = savingLeftOf;
+
+// Row total: monthly saving, investment and what is left for each person; the 10% money is not included.
+const rowTotal = e => savingShown(e) + investmentShown(e) + PEOPLE.reduce((s, f) => s + leftOf(e, f), 0);
 
 const SECTIONS = [
   { kind: 'incomes', title: 'Income', items: incomesOf, empty: 'No income yet', add: 'Add income', hint: 'From where?' },
@@ -133,13 +138,13 @@ function sectionHtml(e, sec) {
 
 function detailsHtml(e) {
   const form = `<form class="spendForm" data-month="${e.month}">
-    <select name="kind">${SECTIONS.map(s => `<option value="${s.kind}">${s.title}</option>`).join('')}</select>
+    <label class="incomeToggle"><input type="checkbox" name="income"> Income</label>
     <select name="who">${ITEM_WHO.map(f => `<option value="${f}">${LABELS[f]}</option>`).join('')}</select>
     <input name="note" placeholder="Note">
     <input name="amount" type="number" min="0.01" step="0.01" placeholder="Amount" required>
     <button type="submit">Add</button>
   </form>`;
-  return `<tr class="child"><td colspan="8">${form}<div class="sections">${SECTIONS.map(s => sectionHtml(e, s)).join('')}</div></td></tr>`;
+  return `<tr class="child"><td colspan="9">${form}<div class="sections">${SECTIONS.map(s => sectionHtml(e, s)).join('')}</div></td></tr>`;
 }
 
 function render() {
@@ -151,22 +156,25 @@ function render() {
   const small = k => `<small>Saved ${fmt(totals[k])} | Income ${fmt(income[k])} | Spent ${fmt(spent[k])}</small>`;
 
   $('totals').innerHTML =
+    `<div class="total"><span>Monthly saving</span><strong>${fmt(data.reduce((s, e) => s + savingShown(e), 0))}</strong></div>
+     <div class="total"><span>Investment</span><strong>${money(data.reduce((s, e) => s + investmentShown(e), 0))}</strong></div>` +
     [['My money', 'me'], ['Wife money', 'wife'], ['Son money', 'son'], ['10% money', 'tenth']]
       .map(([l, f]) => `<div class="total"><span>${l}</span><strong>${money(left(f))}</strong>${small(f)}</div>`).join('');
 
   $('rows').innerHTML = data.map(e => `
     <tr>
       <td>${e.month}</td>
+      <td>${fmt(savingShown(e))}</td>
       <td>${fmt(investmentShown(e))}</td>
       ${COLUMNS.map(f => `<td>${money(leftOf(e, f))}</td>`).join('')}
       <td><strong>${money(rowTotal(e))}</strong></td>
       <td>
         <button class="spend" data-spend="${e.month}">Income/Spending (${incomesOf(e).length}/${spendingsOf(e).length})</button>
       </td>
-    </tr>${open.has(e.month) ? detailsHtml(e) : ''}`).join('') || '<tr><td colspan="8">No data yet</td></tr>';
+    </tr>${open.has(e.month) ? detailsHtml(e) : ''}`).join('') || '<tr><td colspan="9">No data yet</td></tr>';
 
   $('foot').innerHTML = data.length
-    ? `<td>Total</td><td>${fmt(data.reduce((s, e) => s + investmentShown(e), 0))}</td>${COLUMNS.map(f => `<td>${money(data.reduce((s, e) => s + leftOf(e, f), 0))}</td>`).join('')}<td><strong>${money(data.reduce((s, e) => s + rowTotal(e), 0))}</strong></td><td></td>`
+    ? `<td>Total</td><td>${fmt(data.reduce((s, e) => s + savingShown(e), 0))}</td><td>${fmt(data.reduce((s, e) => s + investmentShown(e), 0))}</td>${COLUMNS.map(f => `<td>${money(data.reduce((s, e) => s + leftOf(e, f), 0))}</td>`).join('')}<td><strong>${money(data.reduce((s, e) => s + rowTotal(e), 0))}</strong></td><td></td>`
     : '';
 }
 
@@ -184,7 +192,7 @@ $('rows').addEventListener('submit', ev => {
   const f = ev.target;
   const spending = parseItem({ who: f.who.value, note: f.note.value, amount: f.amount.value });
   if (!spending) return;
-  data = addItem(data, f.dataset.month, f.kind.value, spending);
+  data = addItem(data, f.dataset.month, f.income.checked ? 'incomes' : 'spendings', spending);
   persist();
   render();
 });
