@@ -82,7 +82,7 @@
 <script>
 const KEY = 'familySavings';
 const { FIELDS, ITEM_WHO, PEOPLE, fmt, sum, salaryOf, allocationOf, withTenth, esc, spendingsOf, incomesOf, spentOf, incomeOf, leftOf, spentTotals, incomeTotals, totals: calcTotals,
-  parseItem, addItem, removeItem, investmentLeftOf, savingLeftOf } = Savings;
+  parseItem, addItem, removeItem, investmentLeftOf, savingLeftOf, monthLabel } = Savings;
 const LABELS = { me: 'Me', wife: 'Wife', son: 'Son', tenth: '10%', investment: 'Investment', saving: 'Monthly saving' };
 const open = new Set();
 const $ = id => document.getElementById(id);
@@ -189,7 +189,7 @@ function render() {
 
   $('rows').innerHTML = data.map(e => `
     <tr>
-      <td>${e.month}</td>
+      <td>${monthLabel(e.month)}</td>
       <td>${fmt(savingShown(e))}</td>
       <td>${fmt(investmentShown(e))}</td>
       ${COLUMNS.map(f => `<td>${money(leftOf(e, f))}</td>`).join('')}

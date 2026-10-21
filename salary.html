@@ -62,7 +62,7 @@
   </div>
 
   <div class="card">
-    <div class="head"><h2>History</h2><button type="button" class="danger" id="clearHistory">Clear history</button></div>
+    <div class="head"><h2>History</h2><div class="tools"><button type="button" class="secondary" id="shiftBack">Shift all &minus;1 month</button><button type="button" class="danger" id="clearHistory">Clear history</button></div></div>
     <div class="scroll">
       <table>
         <thead>
@@ -80,7 +80,7 @@
 <script src="settings.js"></script>
 <script>
 const KEY = 'familySavings';
-const { fmt, PEOPLE, shiftMonth, copyEntry, remove, salaryOf, salaryTotal, netSalaryOf, withTenth, sortDesc, setSalary, MONTHLY_PAY_UAH, MONTHLY_PAY_LABELS, payOf, setMonthlyPay, allocationOf, setAllocation, savingOf, setMonthlySaving, investmentOf, setMonthlyInvestment, salaryLeftOf, taxOf, onePercentOf, rateDate, prevDate, uahToUsd, addTenthSpending } = Savings;
+const { fmt, PEOPLE, shiftMonth, copyEntry, remove, salaryOf, salaryTotal, netSalaryOf, withTenth, sortDesc, setSalary, MONTHLY_PAY_UAH, MONTHLY_PAY_LABELS, payOf, setMonthlyPay, allocationOf, setAllocation, savingOf, setMonthlySaving, investmentOf, setMonthlyInvestment, salaryLeftOf, taxOf, onePercentOf, monthLabel, rateDate, prevDate, uahToUsd, addTenthSpending } = Savings;
 const RATES_KEY = 'uahUsdRates';
 const LABELS = { me: 'me', wife: 'wife', son: 'son' };
 const rates = JSON.parse(localStorage.getItem(RATES_KEY) || '{}');
@@ -165,7 +165,7 @@ function render() {
 
   $('rows').innerHTML = rows.map(e => `
     <tr>
-      <td>${e.month}</td>
+      <td>${monthLabel(e.month)}</td>
       <td>${fmt(salaryOf(e))}</td>
       <td>${leftHtml(e)}</td>
       <td>
@@ -187,7 +187,7 @@ async function addTenthForNewLine(month) {
     persist();
     render();
   } catch {
-    alert(`Could not get the exchange rate, so the ${AppSettings.load().tenthSpendUah} UAH spending from 10% was not added for ${month}.`);
+    alert(`Could not get the exchange rate, so the ${AppSettings.load().tenthSpendUah} UAH spending from 10% was not added for ${monthLabel(month)}.`);
   }
 }
 
@@ -196,7 +196,7 @@ $('form').addEventListener('submit', ev => {
   const month = $('month').value;
   const existing = data.find(e => e.month === month);
   if (existing && salaryOf(existing) > 0 && editing !== month) {
-    showError(`${month} already exists. Use Edit on its line in the history to change it.`);
+    showError(`${monthLabel(month)} already exists. Use Edit on its line in the history to change it.`);
     return;
   }
   showError('');
@@ -217,6 +217,16 @@ $('clearHistory').addEventListener('click', () => {
   data = [];
   open.clear();
   GitSync.allowEmptyOnce();
+  persist();
+  render();
+});
+
+$('shiftBack').addEventListener('click', () => {
+  if (!data.length || !confirm('Move every salary line back by one month?')) return;
+  data = data.map(e => ({ ...e, month: shiftMonth(e.month, -1) }));
+  const shifted = new Set([...open].map(m => shiftMonth(m, -1)));
+  open.clear();
+  shifted.forEach(m => open.add(m));
   persist();
   render();
 });
