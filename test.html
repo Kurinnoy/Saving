@@ -24,7 +24,7 @@
 <script src="logic.js"></script>
 <script>
 const { FIELDS, PEOPLE, fmt, sum, esc, salaryOf, salaryTotal, netSalaryOf, netSalaryTotal, tenthFromSalary, withTenth, afterTenthOf, afterTenthTotal, spendingsOf, incomesOf, spentOf, incomeOf, leftOf, spentTotals, incomeTotals, totals, sortDesc,
-  nextFreeMonth, copyEntry, upsert, remove, parseEntry, setSalary, MONTHLY_PAY_UAH, payOf, setMonthlyPay, allocationOf, setAllocation, savingOf, setMonthlySaving, savingLeftOf, investmentOf, setMonthlyInvestment, investmentLeftOf, salaryLeftOf, salaryIncomeOf, MONTHLY_PAY_LABELS, isValidGithubConfig, githubUrl, encodeContent, decodeContent, encryptText, decryptText, isEncrypted, rateDate, prevDate, uahToUsd, TENTH_SPEND_UAH, addTenthSpending, DEFAULT_SETTINGS, normalizeSettings, parseItem, addItem, removeItem, toCsv, isValidBackup } = Savings;
+  nextFreeMonth, copyEntry, upsert, remove, parseEntry, setSalary, MONTHLY_PAY_UAH, payOf, setMonthlyPay, allocationOf, setAllocation, savingOf, setMonthlySaving, savingLeftOf, investmentOf, setMonthlyInvestment, investmentLeftOf, salaryLeftOf, salaryIncomeOf, taxOf, onePercentOf, MONTHLY_PAY_LABELS, isValidGithubConfig, githubUrl, encodeContent, decodeContent, encryptText, decryptText, isEncrypted, rateDate, prevDate, uahToUsd, TENTH_SPEND_UAH, addTenthSpending, DEFAULT_SETTINGS, normalizeSettings, parseItem, addItem, removeItem, toCsv, isValidBackup } = Savings;
 const parseSpending = parseItem;
 const addSpending = (d, m, s) => addItem(d, m, 'spendings', s);
 const removeSpending = (d, m, id) => removeItem(d, m, 'spendings', id);
@@ -162,7 +162,7 @@ describe('remove (Delete button)', () => {
 describe('parseEntry (form values)', () => {
   it('parses numbers from text and calculates 10% from the net salary', () =>
     eq(parseEntry('2026-01', { salary: '100', me: '1.5', wife: '2', son: '3', tenth: '4' }),
-      { month: '2026-01', salary: 100, me: 1.5, wife: 2, son: 3, tenth: 9.5 }));
+      { month: '2026-01', salary: 100, me: 1.5, wife: 2, son: 3, tenth: 9.4 }));
   it('treats empty and invalid values as 0', () =>
     eq(parseEntry('2026-01', { me: '', wife: 'abc', son: undefined, tenth: '5' }),
       { month: '2026-01', salary: 0, me: 0, wife: 0, son: 0, tenth: 0 }));
@@ -176,14 +176,14 @@ describe('toCsv (Export CSV)', () => {
   it('has a header line', () => eq(toCsv([]), 'Month,Salary,Net salary,10%,After 10%,Me,Wife,Son,Total,Income,Spent,Left'));
   it('has one line per month with salary, total, income, spent and left', () =>
     eq(toCsv([{ ...E('2026-01', 1, 2, 3, 4), salary: 500, spendings: [S('a', 'me', 3)], incomes: [S('b', 'wife', 20)] }]),
-      'Month,Salary,Net salary,10%,After 10%,Me,Wife,Son,Total,Income,Spent,Left\n2026-01,500,475,4,471,1,2,3,10,670,3,677'));
+      'Month,Salary,Net salary,10%,After 10%,Me,Wife,Son,Total,Income,Spent,Left\n2026-01,500,470,4,466,1,2,3,10,670,3,677'));
   it('works for months without salary or child entries', () =>
     eq(toCsv([E('2026-01', 1, 2, 3, 4)]), 'Month,Salary,Net salary,10%,After 10%,Me,Wife,Son,Total,Income,Spent,Left\n2026-01,0,0,4,-4,1,2,3,10,0,0,10'));
 });
 
 describe('10% of net salary and After 10%', () => {
   it('withTenth recalculates 10% from the salary', () =>
-    eq(withTenth([{ ...E('2026-01', 1, 2, 3, 777), salary: 1000 }])[0].tenth, 95));
+    eq(withTenth([{ ...E('2026-01', 1, 2, 3, 777), salary: 1000 }])[0].tenth, 94));
   it('withTenth sets 10% to 0 when there is no salary', () => eq(withTenth([E('2026-01', 0, 0, 0, 5)])[0].tenth, 0));
   it('withTenth keeps everything else and the original data', () => {
     const d = [{ ...E('2026-01', 1, 2, 3, 4), salary: 100 }];
@@ -191,25 +191,39 @@ describe('10% of net salary and After 10%', () => {
     eq([r[0].me, r[0].salary, d[0].tenth], [1, 100, 4]);
   });
   it('PEOPLE are all fields except 10%', () => eq(PEOPLE, ['me', 'wife', 'son']));
-  it('10% is 10% of the net salary', () => eq(tenthFromSalary(1000), 95));
-  it('10% is rounded to two decimals', () => eq(tenthFromSalary(33.33), 3.17));
+  it('10% is 10% of the net salary', () => eq(tenthFromSalary(1000), 94));
+  it('10% is rounded to two decimals', () => eq(tenthFromSalary(33.33), 3.13));
   it('10% is 0 for no salary', () => eq(tenthFromSalary(0), 0));
-  it('After 10% = net salary - 10%', () => eq(afterTenthOf({ ...E('2026-01', 0, 0, 0, 95), salary: 1000 }), 855));
+  it('After 10% = net salary - 10%', () => eq(afterTenthOf({ ...E('2026-01', 0, 0, 0, 95), salary: 1000 }), 845));
   it('After 10% works for saved months', () => {
     const e = parseEntry('2026-01', { salary: '1000' });
-    eq([e.tenth, afterTenthOf(e)], [95, 855]);
+    eq([e.tenth, afterTenthOf(e)], [94, 846]);
   });
   it('afterTenthTotal adds up all months', () =>
-    eq(afterTenthTotal([{ ...E('2026-01', 0, 0, 0, 95), salary: 1000 }, { ...E('2026-02', 0, 0, 0, 19), salary: 200 }]), 1026));
+    eq(afterTenthTotal([{ ...E('2026-01', 0, 0, 0, 95), salary: 1000 }, { ...E('2026-02', 0, 0, 0, 19), salary: 200 }]), 1014));
 });
 
-describe('net salary (salary minus 5%)', () => {
-  it('is 95% of the salary', () => eq(netSalaryOf({ ...E('2026-01'), salary: 1000 }), 950));
-  it('rounds to two decimals', () => eq(netSalaryOf({ ...E('2026-01'), salary: 33.33 }), 31.66));
+describe('net salary (salary minus 5% and 1%)', () => {
+  it('is 94% of the salary', () => eq(netSalaryOf({ ...E('2026-01'), salary: 1000 }), 940));
+  it('rounds to two decimals', () => eq(netSalaryOf({ ...E('2026-01'), salary: 33.33 }), 31.33));
   it('is 0 for old data without salary', () => eq(netSalaryOf(E('2026-01')), 0));
   it('netSalaryTotal adds up all months', () =>
-    eq(netSalaryTotal([{ ...E('2026-01'), salary: 1000 }, { ...E('2026-02'), salary: 200 }, E('2026-03')]), 1140));
+    eq(netSalaryTotal([{ ...E('2026-01'), salary: 1000 }, { ...E('2026-02'), salary: 200 }, E('2026-03')]), 1128));
   it('net salary is not part of the saved total', () => eq(sum({ ...E('2026-01', 1, 2, 3, 4), salary: 999 }), 10));
+});
+
+describe('salary deductions (5% and 1%)', () => {
+  it('5% is 5% of the salary', () => eq(taxOf(1000), 50));
+  it('1% is 1% of the salary', () => eq(onePercentOf(1000), 10));
+  it('both round to two decimals', () => {
+    eq(taxOf(33.33), 1.67);
+    eq(onePercentOf(33.33), 0.33);
+  });
+  it('are 0 for no salary', () => {
+    eq(taxOf(0), 0);
+    eq(onePercentOf(0), 0);
+  });
+  it('net salary is the salary minus both', () => eq(netSalaryOf({ ...E('2026-01'), salary: 1000 }), 1000 - taxOf(1000) - onePercentOf(1000)));
 });
 
 describe('salary', () => {
@@ -235,10 +249,10 @@ describe('setSalary (My salary page)', () => {
   it('still accepts a plain number', () => eq(setSalary([], '2026-01', '4655.81')[0].salary, 4655.81));
   it('sets the salary and recalculates 10% of an existing month', () => {
     const r = setSalary([E('2026-01', 1, 2, 3, 4)], '2026-01', '1000');
-    eq([r[0].salary, r[0].tenth, r[0].me], [1000, 95, 1]);
+    eq([r[0].salary, r[0].tenth, r[0].me], [1000, 94, 1]);
   });
   it('creates a missing month with zero savings', () =>
-    eq(setSalary([], '2026-02', '200'), [{ month: '2026-02', salary: 200, me: 0, wife: 0, son: 0, tenth: 19 }]));
+    eq(setSalary([], '2026-02', '200'), [{ month: '2026-02', salary: 200, me: 0, wife: 0, son: 0, tenth: 18.8 }]));
   it('keeps other months unchanged', () => eq(setSalary([E('2026-01', 5), E('2026-02')], '2026-02', '100')[0], E('2026-01', 5)));
   it('treats invalid and negative values as 0', () => {
     eq(setSalary([E('2026-01')], '2026-01', 'abc')[0].salary, 0);
@@ -255,8 +269,8 @@ describe('setSalary (My salary page)', () => {
 
 describe('monthly pay in UAH and USD rate', () => {
   it('has the fixed amounts: monthly pay, utility bills and the internet fee', () => {
-    eq(MONTHLY_PAY_UAH, [13500, 5500, 600, 40000]);
-    eq(MONTHLY_PAY_LABELS, ['Monthly lease payment', 'Monthly utility bills', 'Internet fee', 'Monthly expenses']);
+    eq(MONTHLY_PAY_UAH, [13500, 5500, 600, 40000, 1900]);
+    eq(MONTHLY_PAY_LABELS, ['Monthly lease payment', 'Monthly utility bills', 'Internet fee', 'Monthly expenses', 'ESF']);
   });
   it('uses the last day of a past month', () => eq(rateDate('2026-02', new Date(2026, 5, 10)), '20260228'));
   it('handles leap years', () => eq(rateDate('2024-02', new Date(2026, 5, 10)), '20240229'));
@@ -265,19 +279,19 @@ describe('monthly pay in UAH and USD rate', () => {
   it('prevDate steps back one day', () => eq(prevDate('20260301'), '20260228'));
   it('prevDate crosses a year', () => eq(prevDate('20260101'), '20251231'));
   it('converts UAH to USD rounded to two decimals', () => eq(uahToUsd(13500, 44.8624), 300.92));
-  it('payOf uses the defaults when a month has no own pay', () => eq(payOf(E('2026-01')), [13500, 5500, 600, 40000]));
+  it('payOf uses the defaults when a month has no own pay', () => eq(payOf(E('2026-01')), [13500, 5500, 600, 40000, 1900]));
   it('payOf fills the missing amounts for months saved with only two', () =>
-    eq(payOf({ ...E('2026-01'), monthlyPay: [1, 2] }), [1, 2, 600, 40000]));
+    eq(payOf({ ...E('2026-01'), monthlyPay: [1, 2] }), [1, 2, 600, 40000, 1900]));
   it('setMonthlyPay stores the amounts of one month', () => {
     const r = setMonthlyPay([E('2026-01'), E('2026-02')], '2026-02', ['15000', '5000.5', '700', '800']);
-    eq([payOf(r[0]), payOf(r[1])], [[13500, 5500, 600, 40000], [15000, 5000.5, 700, 800]]);
+    eq([payOf(r[0]), payOf(r[1])], [[13500, 5500, 600, 40000, 1900], [15000, 5000.5, 700, 800, 1900]]);
   });
   it('setMonthlyPay treats invalid and negative values as 0', () =>
-    eq(payOf(setMonthlyPay([E('2026-01')], '2026-01', ['abc', '-5', '', 'x'])[0]), [0, 0, 0, 0]));
+    eq(payOf(setMonthlyPay([E('2026-01')], '2026-01', ['abc', '-5', '', 'x', 'y'])[0]), [0, 0, 0, 0, 0]));
   it('Save on the main page keeps the monthly pay', () =>
-    eq(payOf(upsert([{ ...E('2026-01'), monthlyPay: [1, 2] }], E('2026-01', 9))[0]), [1, 2, 600, 40000]));
+    eq(payOf(upsert([{ ...E('2026-01'), monthlyPay: [1, 2] }], E('2026-01', 9))[0]), [1, 2, 600, 40000, 1900]));
   it('Copy keeps the monthly pay', () =>
-    eq(payOf(copyEntry([{ ...E('2026-01'), monthlyPay: [1, 2] }], '2026-01')[1]), [1, 2, 600, 40000]));
+    eq(payOf(copyEntry([{ ...E('2026-01'), monthlyPay: [1, 2] }], '2026-01')[1]), [1, 2, 600, 40000, 1900]));
   it('backup accepts a valid monthly pay and rejects a bad one', () => {
     eq(isValidBackup([{ ...E('2026-01'), monthlyPay: [1, 2] }]), true);
     eq(isValidBackup([{ ...E('2026-01'), monthlyPay: ['1'] }]), false);
@@ -304,15 +318,15 @@ describe('per-person amounts in details (me 275, wife 275, son 100)', () => {
 
 describe('salaryLeftOf (Net salary column)', () => {
   const m = { ...E('2026-01'), salary: 1000 };
-  it('= salary - 5% - 10% - saving - per-person amounts - monthly pay in USD', () => eq(salaryLeftOf(m, 45), -2619.44));
+  it('= salary - 1% - 5% - 10% - saving - per-person amounts - monthly pay in USD', () => eq(salaryLeftOf(m, 45), -2670.66));
   it('uses the changed per-person amounts', () =>
-    eq(salaryLeftOf(setAllocation([m], '2026-01', { me: 100, wife: 0, son: 0 })[0], 45), -2069.44));
+    eq(salaryLeftOf(setAllocation([m], '2026-01', { me: 100, wife: 0, son: 0 })[0], 45), -2120.66));
   it('uses the changed monthly pay', () =>
-    eq(salaryLeftOf(setMonthlyPay([m], '2026-01', [0, 0, 0, 0])[0], 45), -1295));
+    eq(salaryLeftOf(setMonthlyPay([m], '2026-01', [0, 0, 0, 0, 0])[0], 45), -1304));
   it('uses the changed monthly saving', () =>
-    eq(salaryLeftOf(setMonthlySaving([m], '2026-01', '0')[0], 45), -1619.44));
+    eq(salaryLeftOf(setMonthlySaving([m], '2026-01', '0')[0], 45), -1670.66));
   it('uses the changed monthly investment', () =>
-    eq(salaryLeftOf(setMonthlyInvestment([m], '2026-01', '0')[0], 45), -2119.44));
+    eq(salaryLeftOf(setMonthlyInvestment([m], '2026-01', '0')[0], 45), -2170.66));
   it('is null without a rate', () => eq(salaryLeftOf(m, undefined), null));
 });
 
@@ -354,7 +368,7 @@ describe('monthly investment (default 500)', () => {
 
 describe('defaults for new salary lines (Config page)', () => {
   const custom = { monthlySaving: 800, monthlyInvestment: 700, allocation: { me: 10, wife: 20, son: 30 }, monthlyPay: [1, 2, 3, 4], tenthSpendUah: 5000 };
-  it('built-in defaults', () => eq(DEFAULT_SETTINGS, { monthlySaving: 1000, monthlyInvestment: 500, allocation: { me: 275, wife: 275, son: 100 }, monthlyPay: [13500, 5500, 600, 40000], tenthSpendUah: 10000 }));
+  it('built-in defaults', () => eq(DEFAULT_SETTINGS, { monthlySaving: 1000, monthlyInvestment: 500, allocation: { me: 275, wife: 275, son: 100 }, monthlyPay: [13500, 5500, 600, 40000, 1900], tenthSpendUah: 10000 }));
   it('normalizeSettings fills everything from the built-in values when empty', () => {
     eq(normalizeSettings(undefined), DEFAULT_SETTINGS);
     eq(normalizeSettings({}), DEFAULT_SETTINGS);
@@ -362,12 +376,12 @@ describe('defaults for new salary lines (Config page)', () => {
   });
   it('normalizeSettings reads numbers from text and ignores invalid or negative values', () =>
     eq(normalizeSettings({ monthlySaving: '800', monthlyInvestment: '700', allocation: { me: '10', wife: 'abc', son: '-5' }, monthlyPay: ['1', '', 3], tenthSpendUah: '5000' }),
-      { monthlySaving: 800, monthlyInvestment: 700, allocation: { me: 10, wife: 275, son: 100 }, monthlyPay: [1, 5500, 3, 40000], tenthSpendUah: 5000 }));
+      { monthlySaving: 800, monthlyInvestment: 700, allocation: { me: 10, wife: 275, son: 100 }, monthlyPay: [1, 5500, 3, 40000, 1900], tenthSpendUah: 5000 }));
   it('normalizeSettings allows 0', () => eq(normalizeSettings({ monthlySaving: 0 }).monthlySaving, 0));
   it('a new salary line gets the configured values as its own', () => {
     const e = setSalary([], '2026-05', '1000', custom)[0];
     eq([e.monthlySaving, e.monthlyInvestment, e.allocation, e.monthlyPay], [800, 700, { me: 10, wife: 20, son: 30 }, [1, 2, 3, 4]]);
-    eq([savingOf(e), investmentOf(e), allocationOf(e), payOf(e)], [800, 700, { me: 10, wife: 20, son: 30 }, [1, 2, 3, 4]]);
+    eq([savingOf(e), investmentOf(e), allocationOf(e), payOf(e)], [800, 700, { me: 10, wife: 20, son: 30 }, [1, 2, 3, 4, 1900]]);
   });
   it('an existing month without a salary also gets them when its salary is added', () => {
     const e = setSalary([E('2026-05', 5)], '2026-05', '1000', custom)[0];
@@ -384,7 +398,7 @@ describe('defaults for new salary lines (Config page)', () => {
     eq([e.monthlySaving, e.allocation, e.monthlyPay], [undefined, undefined, undefined]);
   });
   it('without settings nothing is added', () =>
-    eq(setSalary([], '2026-05', '1000'), [{ month: '2026-05', salary: 1000, me: 0, wife: 0, son: 0, tenth: 95 }]));
+    eq(setSalary([], '2026-05', '1000'), [{ month: '2026-05', salary: 1000, me: 0, wife: 0, son: 0, tenth: 94 }]));
   it('a zero salary adds no details', () => eq(setSalary([], '2026-05', '0', custom)[0].allocation, undefined));
   it('the configured UAH amount is used for the 10% spending', () => {
     const r = addTenthSpending([E('2026-05')], '2026-05', 40, 5000);

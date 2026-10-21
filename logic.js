@@ -114,9 +114,12 @@ const Savings = (() => {
   const salaryTotal = data => data.reduce((s, e) => s + salaryOf(e), 0);
 
   const TAX_RATE = 0.05;
+  const ONE_RATE = 0.01;
   const TENTH_RATE = 0.1;
   const round2 = n => Math.round(n * 100) / 100;
-  const netFromSalary = salary => round2(salary * (1 - TAX_RATE));
+  const taxOf = salary => round2(salary * TAX_RATE);
+  const onePercentOf = salary => round2(salary * ONE_RATE);
+  const netFromSalary = salary => round2(salary * (1 - TAX_RATE - ONE_RATE));
   const tenthFromSalary = salary => round2(netFromSalary(salary) * TENTH_RATE);
 
   // 10% is never typed in: every month gets it recalculated from its salary.
@@ -151,8 +154,8 @@ const Savings = (() => {
   };
 
   // Fixed monthly pay in UAH, converted to USD with the rate of the month's last day (or today for the current month).
-  const MONTHLY_PAY_UAH = [13500, 5500, 600, 40000];
-  const MONTHLY_PAY_LABELS = ['Monthly lease payment', 'Monthly utility bills', 'Internet fee', 'Monthly expenses'];
+  const MONTHLY_PAY_UAH = [13500, 5500, 600, 40000, 1900];
+  const MONTHLY_PAY_LABELS = ['Monthly lease payment', 'Monthly utility bills', 'Internet fee', 'Monthly expenses', 'ESF'];
   const pad2 = n => String(n).padStart(2, '0');
   const rateDate = (month, today = new Date()) => {
     const [y, m] = month.split('-').map(Number);
@@ -219,7 +222,7 @@ const Savings = (() => {
     };
   };
 
-  // Salary left after everything in the details: 5%, 10%, per-person amounts and monthly pay (UAH at the month's rate).
+  // Salary left after everything in the details: 5%, 1%, 10%, per-person amounts and monthly pay (UAH at the month's rate).
   const salaryLeftOf = (e, rate) => {
     if (!(rate > 0)) return null;
     const salary = salaryOf(e);
@@ -305,6 +308,6 @@ const Savings = (() => {
 
   return {
     FIELDS, ITEM_WHO, PEOPLE, fmt, sum, esc, salaryOf, salaryTotal, netSalaryOf, netSalaryTotal, tenthFromSalary, withTenth, afterTenthOf, afterTenthTotal, spendingsOf, incomesOf, spentOf, incomeOf, leftOf, spentTotals, incomeTotals, totals,
-    sortDesc, parseAmount, nextFreeMonth, shiftMonth, copyEntry, upsert, remove, parseEntry, setSalary, MONTHLY_PAY_UAH, MONTHLY_PAY_LABELS, payOf, setMonthlyPay, allocationOf, setAllocation, savingOf, setMonthlySaving, savingLeftOf, investmentOf, setMonthlyInvestment, investmentLeftOf, salaryLeftOf, salaryIncomeOf, isValidGithubConfig, githubUrl, encodeContent, decodeContent, encryptText, decryptText, isEncrypted, rateDate, prevDate, uahToUsd, TENTH_SPEND_UAH, addTenthSpending, DEFAULT_SETTINGS, normalizeSettings, parseItem, addItem, removeItem, toCsv, isValidBackup
+    sortDesc, parseAmount, nextFreeMonth, shiftMonth, copyEntry, upsert, remove, parseEntry, setSalary, MONTHLY_PAY_UAH, MONTHLY_PAY_LABELS, payOf, setMonthlyPay, allocationOf, setAllocation, savingOf, setMonthlySaving, savingLeftOf, investmentOf, setMonthlyInvestment, investmentLeftOf, salaryLeftOf, salaryIncomeOf, taxOf, onePercentOf, isValidGithubConfig, githubUrl, encodeContent, decodeContent, encryptText, decryptText, isEncrypted, rateDate, prevDate, uahToUsd, TENTH_SPEND_UAH, addTenthSpending, DEFAULT_SETTINGS, normalizeSettings, parseItem, addItem, removeItem, toCsv, isValidBackup
   };
 })();

@@ -26,6 +26,9 @@
   #status { margin-top: 12px; padding: 8px 12px; border-radius: 6px; display: none; }
   #status.ok { display: block; background: #e3f6e8; color: #1a7a35; }
   #status.err { display: block; background: #fde4e4; color: #b00020; }
+  #pwStatus { margin-top: 12px; padding: 8px 12px; border-radius: 6px; display: none; }
+  #pwStatus.ok { display: block; background: #e3f6e8; color: #1a7a35; }
+  #pwStatus.err { display: block; background: #fde4e4; color: #b00020; }
   #defStatus { margin-top: 12px; padding: 8px 12px; border-radius: 6px; display: none; }
   #defStatus.ok { display: block; background: #e3f6e8; color: #1a7a35; }
   #defStatus.err { display: block; background: #fde4e4; color: #b00020; }
@@ -58,6 +61,20 @@
   </div>
 
   <div class="card">
+    <h2>Change encryption password</h2>
+    <form id="pwForm" autocomplete="off">
+      <div><label for="pw_old">Current password</label><input id="pw_old" type="password" autocomplete="current-password"></div>
+      <div><label for="pw_new">New password</label><input id="pw_new" type="password" autocomplete="new-password"></div>
+      <div><label for="pw_new2">Repeat new password</label><input id="pw_new2" type="password" autocomplete="new-password"></div>
+    </form>
+    <div class="tools">
+      <button type="button" id="changePw">Change password</button>
+    </div>
+    <div id="pwStatus" role="status"></div>
+    <p class="note">The file in GitHub is re-encrypted with the new password. The GitHub settings above (including the token) must be filled in. If you forget the current password the file cannot be recovered.</p>
+  </div>
+
+  <div class="card">
     <h2>Defaults for a new salary line</h2>
     <form id="defaultsForm" autocomplete="off">
       <div><label for="d_saving">Monthly saving ($)</label><input id="d_saving" type="number" min="0" step="0.01"></div>
@@ -69,6 +86,7 @@
       <div><label for="d_pay1" id="d_pay1_label"></label><input id="d_pay1" type="number" min="0" step="0.01"></div>
       <div><label for="d_pay2" id="d_pay2_label"></label><input id="d_pay2" type="number" min="0" step="0.01"></div>
       <div><label for="d_pay3" id="d_pay3_label"></label><input id="d_pay3" type="number" min="0" step="0.01"></div>
+      <div><label for="d_pay4" id="d_pay4_label"></label><input id="d_pay4" type="number" min="0" step="0.01"></div>
       <div><label for="d_tenth">Spending from 10% (UAH)</label><input id="d_tenth" type="number" min="0" step="0.01"></div>
     </form>
     <div class="tools">
@@ -76,7 +94,7 @@
       <button type="button" id="resetDefaults" class="secondary">Reset to built-in values</button>
     </div>
     <div id="defStatus" role="status"></div>
-    <p class="note">These values are copied into every new line you add on the My salary page. Lines that already exist keep their own values. The four amounts below the per-person ones are in UAH.</p>
+    <p class="note">These values are copied into every new line you add on the My salary page. Lines that already exist keep their own values. The five amounts below the per-person ones are in UAH.</p>
   </div>
 </main>
 
@@ -118,13 +136,13 @@ function validConfig() {
   return c;
 }
 
-async function run(work) {
+async function run(work, report = status) {
   const buttons = document.querySelectorAll('.tools button');
   buttons.forEach(b => b.disabled = true);
   try {
     await work();
   } catch (err) {
-    status(err.message || 'Request failed.', false);
+    report(err.message || 'Request failed.', false);
   } finally {
     buttons.forEach(b => b.disabled = false);
   }
@@ -133,7 +151,7 @@ async function run(work) {
 $('form').addEventListener('submit', ev => ev.preventDefault());
 
 const { MONTHLY_PAY_LABELS } = Savings;
-const PAY_IDS = ['d_pay0', 'd_pay1', 'd_pay2', 'd_pay3'];
+const PAY_IDS = ['d_pay0', 'd_pay1', 'd_pay2', 'd_pay3', 'd_pay4'];
 PAY_IDS.forEach((id, i) => { $(`${id}_label`).textContent = `${MONTHLY_PAY_LABELS[i]} (UAH)`; });
 
 function fillDefaults(s) {
@@ -169,6 +187,31 @@ $('resetDefaults').addEventListener('click', () => {
   AppSettings.reset();
   fillDefaults(AppSettings.load());
   defStatus('Built-in values restored.', true);
+});
+
+function pwStatus(text, ok) {
+  const s = $('pwStatus');
+  s.textContent = text;
+  s.className = ok ? 'ok' : 'err';
+}
+
+$('pwForm').addEventListener('submit', ev => ev.preventDefault());
+
+$('changePw').addEventListener('click', () => {
+  const oldPw = $('pw_old').value;
+  const newPw = $('pw_new').value;
+  if (!newPw) return pwStatus('Enter a new password.', false);
+  if (newPw !== $('pw_new2').value) return pwStatus('The new passwords do not match.', false);
+  if (newPw === oldPw) return pwStatus('The new password is the same as the current one.', false);
+  const c = validConfig();
+  if (!c) return pwStatus('Fill in the GitHub settings first.', false);
+  run(async () => {
+    const changed = await GitSync.changePassword(c, oldPw, newPw);
+    sessionStorage.setItem(PW_KEY, newPw);
+    $('password').value = newPw;
+    ['pw_old', 'pw_new', 'pw_new2'].forEach(id => { $(id).value = ''; });
+    pwStatus(changed ? 'Password changed and the file in GitHub re-encrypted.' : 'Password set. No file in GitHub yet; it will be encrypted with the new password when saved.', true);
+  }, pwStatus);
 });
 
 $('saveCfg').addEventListener('click', () => {

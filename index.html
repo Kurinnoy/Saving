@@ -31,15 +31,15 @@
   nav a.current { color: #222; }
   .total small { display: block; font-size: 12px; color: #555; margin-top: 4px; }
   tr.child td { text-align: left; background: #fafafa; }
-  .spends { list-style: none; margin: 0 0 10px; padding: 0; }
-  .sections { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; }
-  .section h4 { margin: 0 0 6px; }
-  .spends li { display: flex; gap: 12px; align-items: center; padding: 3px 0; }
-  .spends .who { width: 120px; font-weight: bold; }
-  .spends .amt { width: 100px; text-align: right; }
-  .spends .what { flex: 1; }
-  .spends li.fixed { color: #555; }
-  .spends li.fixed::after { content: ''; width: 58px; }
+  .items { margin-bottom: 10px; }
+  .items th, .items td { text-align: left; }
+  .items td.amt, .items th.amt { text-align: right; }
+  .items .who { font-weight: bold; }
+  .items tr.fixed td { color: #555; }
+  .items tr.income td.type { color: #1a7a35; }
+  .items tr.spending td.type { color: #d33; }
+  th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+  th.sortable:hover { color: #2f6fed; }
   .spendForm { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
   .spendForm input, .spendForm select { width: auto; padding: 6px; font-size: 14px; }
   .spendForm input[name=note] { flex: 1; min-width: 120px; }
@@ -69,7 +69,7 @@
       <table id="table">
         <thead>
           <tr id="foot"></tr>
-          <tr><th>Month</th><th>Monthly saving</th><th>Investment</th><th>Me</th><th>Wife</th><th>Son</th><th>10%</th><th>Total</th><th></th></tr>
+          <tr id="headRow"></tr>
         </thead>
         <tbody id="rows"></tbody>
       </table>
@@ -82,7 +82,7 @@
 <script>
 const KEY = 'familySavings';
 const { FIELDS, ITEM_WHO, PEOPLE, fmt, sum, salaryOf, allocationOf, withTenth, esc, spendingsOf, incomesOf, spentOf, incomeOf, leftOf, spentTotals, incomeTotals, totals: calcTotals,
-  sortDesc, parseItem, addItem, removeItem, investmentLeftOf, savingLeftOf } = Savings;
+  parseItem, addItem, removeItem, investmentLeftOf, savingLeftOf } = Savings;
 const LABELS = { me: 'Me', wife: 'Wife', son: 'Son', tenth: '10%', investment: 'Investment', saving: 'Monthly saving' };
 const open = new Set();
 const $ = id => document.getElementById(id);
@@ -104,36 +104,57 @@ const savingShown = savingLeftOf;
 // Row total: monthly saving, investment and what is left for each person; the 10% money is not included.
 const rowTotal = e => savingShown(e) + investmentShown(e) + PEOPLE.reduce((s, f) => s + leftOf(e, f), 0);
 
-const SECTIONS = [
-  { kind: 'incomes', title: 'Income', items: incomesOf, empty: 'No income yet', add: 'Add income', hint: 'From where?' },
-  { kind: 'spendings', title: 'Spending', items: spendingsOf, empty: 'No spending yet', add: 'Add spending', hint: 'What for?' }
+// Sortable History columns, in display order, with the value each one sorts by.
+const HEAD = [
+  ['month', 'Month', e => e.month],
+  ['saving', 'Monthly saving', savingShown],
+  ['investment', 'Investment', investmentShown],
+  ['me', 'Me', e => leftOf(e, 'me')],
+  ['wife', 'Wife', e => leftOf(e, 'wife')],
+  ['son', 'Son', e => leftOf(e, 'son')],
+  ['tenth', '10%', e => leftOf(e, 'tenth')],
+  ['total', 'Total', rowTotal]
 ];
+const sortValue = Object.fromEntries(HEAD.map(([key, , value]) => [key, value]));
+let sort = { key: 'month', dir: 'desc' };
 
-// Read-only income lines taken from the month's My salary details; they do not change any totals.
-function salaryIncomeLines(e) {
-  if (!(salaryOf(e) > 0 || e.allocation)) return '';
-  const alloc = allocationOf(e);
-  return PEOPLE.map(f => `
-    <li class="fixed">
-      <span class="who">${LABELS[f]}</span>
-      <span class="what">From My salary</span>
-      <span class="amt">${fmt(alloc[f])}</span>
-    </li>`).join('');
+const sortData = arr => {
+  const value = sortValue[sort.key];
+  const dir = sort.dir === 'asc' ? 1 : -1;
+  return [...arr].sort((a, b) => {
+    const va = value(a), vb = value(b);
+    const cmp = typeof va === 'string' ? va.localeCompare(vb) : va - vb;
+    return cmp * dir;
+  });
+};
+
+// One Income/Spending line of the details table; fixed lines come from My salary and cannot be deleted.
+function itemRow(e, kind, s, fixed) {
+  const income = kind === 'incomes';
+  const action = fixed ? '' : `<button class="danger" data-delitem="${esc(s.id)}" data-kind="${kind}" data-month="${e.month}">Delete</button>`;
+  return `<tr class="${income ? 'income' : 'spending'}${fixed ? ' fixed' : ''}">
+    <td class="type">${income ? 'Income' : 'Spending'}</td>
+    <td class="who">${LABELS[s.who]}</td>
+    <td>${esc(s.note)}</td>
+    <td class="amt">${fmt(s.amount)}</td>
+    <td>${action}</td>
+  </tr>`;
 }
 
-function sectionHtml(e, sec) {
-  const fixed = sec.kind === 'incomes' ? salaryIncomeLines(e) : '';
-  const list = fixed + (sec.items(e).map(s => `
-    <li>
-      <span class="who">${LABELS[s.who]}</span>
-      <span class="what">${esc(s.note)}</span>
-      <span class="amt">${fmt(s.amount)}</span>
-      <button class="danger" data-delitem="${esc(s.id)}" data-kind="${sec.kind}" data-month="${e.month}">Delete</button>
-    </li>`).join('') || (fixed ? '' : `<li class="note">${sec.empty}</li>`));
-  return `<div class="section">
-    <h4>${sec.title}</h4>
-    <ul class="spends">${list}</ul>
-  </div>`;
+// One table per month: all income lines first (My salary lines, then typed ones), then spending lines.
+function detailsTable(e) {
+  const rows = [];
+  if (salaryOf(e) > 0 || e.allocation) {
+    const alloc = allocationOf(e);
+    PEOPLE.forEach(f => rows.push(itemRow(e, 'incomes', { who: f, note: 'From My salary', amount: alloc[f] }, true)));
+  }
+  incomesOf(e).forEach(s => rows.push(itemRow(e, 'incomes', s, false)));
+  spendingsOf(e).forEach(s => rows.push(itemRow(e, 'spendings', s, false)));
+  if (!rows.length) rows.push('<tr><td colspan="5" class="note">No income or spending yet</td></tr>');
+  return `<table class="items">
+    <thead><tr><th>Type</th><th>Who</th><th>Note</th><th class="amt">Amount</th><th></th></tr></thead>
+    <tbody>${rows.join('')}</tbody>
+  </table>`;
 }
 
 function detailsHtml(e) {
@@ -144,16 +165,21 @@ function detailsHtml(e) {
     <input name="amount" type="number" min="0.01" step="0.01" placeholder="Amount" required>
     <button type="submit">Add</button>
   </form>`;
-  return `<tr class="child"><td colspan="9">${form}<div class="sections">${SECTIONS.map(s => sectionHtml(e, s)).join('')}</div></td></tr>`;
+  return `<tr class="child"><td colspan="9">${form}${detailsTable(e)}</td></tr>`;
 }
 
 function render() {
-  data = withTenth(sortDesc(data));
+  data = withTenth(sortData(data));
   const totals = calcTotals(data);
   const spent = spentTotals(data);
   const income = incomeTotals(data);
   const left = k => totals[k] + income[k] - spent[k];
   const small = k => `<small>Saved ${fmt(totals[k])} | Income ${fmt(income[k])} | Spent ${fmt(spent[k])}</small>`;
+
+  $('headRow').innerHTML = HEAD.map(([key, label]) => {
+    const arrow = sort.key === key ? (sort.dir === 'asc' ? ' \u25B2' : ' \u25BC') : '';
+    return `<th class="sortable" data-key="${key}">${label}${arrow}</th>`;
+  }).join('') + '<th></th>';
 
   $('totals').innerHTML =
     `<div class="total"><span>Monthly saving</span><strong>${fmt(data.reduce((s, e) => s + savingShown(e), 0))}</strong></div>
@@ -207,6 +233,14 @@ $('rows').addEventListener('click', ev => {
     persist();
     render();
   }
+});
+
+$('headRow').addEventListener('click', ev => {
+  const { key } = ev.target.dataset;
+  if (!key) return;
+  if (sort.key === key) sort.dir = sort.dir === 'asc' ? 'desc' : 'asc';
+  else sort = { key, dir: 'desc' };
+  render();
 });
 
 render();

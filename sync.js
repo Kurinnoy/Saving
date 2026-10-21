@@ -61,6 +61,24 @@ const GitSync = (() => {
     sessionStorage.setItem(SYNCED_KEY, '1');
   }
 
+  // Re-encrypts the file in GitHub with a new password; returns false when there is no file yet.
+  async function changePassword(c, oldPassword, newPassword) {
+    const file = await getFile(c);
+    if (!file || !file.content) return false;
+    let text = Savings.decodeContent(file.content);
+    if (Savings.isEncrypted(text)) text = await Savings.decryptText(text, oldPassword);
+    if (!Savings.isValidBackup(JSON.parse(text))) throw new Error('The file in GitHub is not valid savings data.');
+    const body = {
+      message: `Change encryption password ${new Date().toISOString()}`,
+      content: encodeContent(await Savings.encryptText(text, newPassword)),
+      branch: c.branch,
+      sha: file.sha
+    };
+    const res = await fetch(githubUrl(c), { method: 'PUT', headers: { ...headers(c), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!res.ok) await fail(res);
+    return true;
+  }
+
   // Pages without a #syncStatus element get a small floating one, so new pages work without extra markup.
   const statusEl = () => {
     let el = document.getElementById('syncStatus');
@@ -254,5 +272,5 @@ const GitSync = (() => {
     addEventListener('pagehide', stamp);
   })();
 
-  return { config, getFile, push, schedule, allowEmptyOnce, ready, askPassword, SYNCED_KEY, CFG_KEY, PW_KEY };
+  return { config, getFile, push, changePassword, schedule, allowEmptyOnce, ready, askPassword, SYNCED_KEY, CFG_KEY, PW_KEY };
 })();
