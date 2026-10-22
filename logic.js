@@ -97,6 +97,12 @@ const Savings = (() => {
     const target = copyTarget(data, month);
     const old = data.find(x => x.month === target);
     const copy = { ...saved, month: target };
+    if (e.salaryDate) {
+      const day = Number(e.salaryDate.slice(-2));
+      const [year, monthNumber] = target.split('-').map(Number);
+      const lastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+      copy.salaryDate = `${target}-${String(Math.min(day, lastDay)).padStart(2, '0')}`;
+    }
     if (old) KINDS.forEach(k => { if (old[k]) copy[k] = old[k]; });
     return [...data.filter(x => x.month !== target), copy];
   };
@@ -147,9 +153,9 @@ const Savings = (() => {
   const rowAmount = (e, id, fallback) => {
     if (!e || !Array.isArray(e.defaultRows)) return fallback;
     const row = e.defaultRows.find(item => item.id === id);
-    return row && row.enabled ? round2(row.amount) : 0;
+    return row && row.enabled && row.showInSalary ? round2(row.amount) : 0;
   };
-  const rowEnabled = (e, id) => !Array.isArray(e && e.defaultRows) || !!e.defaultRows.find(item => item.id === id && item.enabled);
+  const rowEnabled = (e, id) => !Array.isArray(e && e.defaultRows) || !!e.defaultRows.find(item => item.id === id && item.enabled && item.showInSalary);
   const taxOf = (salary, e) => round2(salary * rowAmount(e, 'rate_5', 5) / 100);
   const onePercentOf = (salary, e) => round2(salary * rowAmount(e, 'rate_1', 1) / 100);
   const netFromSalary = (salary, e) => round2(salary - taxOf(salary, e) - onePercentOf(salary, e));
@@ -225,36 +231,38 @@ const Savings = (() => {
       const month = match && monthNumber >= 1 && monthNumber <= 12 && validDay
         ? `${year}-${String(monthNumber).padStart(2, '0')}`
         : '';
+      const salaryDate = month && day !== undefined ? `${month}-${String(day).padStart(2, '0')}` : undefined;
       const salary = parseAmount(values[columns[1]]);
       if (!month) throw new Error(`CSV row ${index + (hasHeader ? 2 : 1)} has an invalid date.`);
       if (!Number.isFinite(salary) || salary < 0) throw new Error(`CSV row ${index + (hasHeader ? 2 : 1)} has an invalid salary.`);
       if (seen.has(month)) throw new Error(`The CSV contains more than one salary for ${month}.`);
       seen.add(month);
-      return { month, salary };
+      return { month, salary, ...(salaryDate ? { salaryDate } : {}) };
     });
   };
 
   const toSalaryCsv = data => [
     'Date,Salary',
     ...[...data].filter(e => salaryOf(e) > 0).sort((a, b) => b.month.localeCompare(a.month))
-      .map(e => `${e.month},${salaryOf(e).toFixed(2)}`)
+      .map(e => `${salaryDateOf(e)},${salaryOf(e).toFixed(2)}`)
   ].join('\r\n');
 
-  const setSalary = (data, month, salary, settings) => {
+  const setSalary = (data, month, salary, settings, salaryDate) => {
     const value = Math.max(0, parseAmount(salary) || 0);
     const existing = data.find(e => e.month === month);
     const isNewLine = !existing || !(salaryOf(existing) > 0);
+    const legacyRows = DEFAULT_ROWS.map(row => ({ ...row, showInSalary: true }));
     const defaults = settings && isNewLine && value > 0
-      ? { monthlySaving: settings.monthlySaving, monthlyInvestment: settings.monthlyInvestment, allocation: { ...settings.allocation }, monthlyPay: [...settings.monthlyPay], defaultRows: (settings.defaultRows || DEFAULT_ROWS).map(row => ({ ...row })), otherDefaults: (settings.otherDefaults || []).map(item => ({ ...item })) }
+      ? { monthlySaving: settings.monthlySaving, monthlyInvestment: settings.monthlyInvestment, allocation: { ...settings.allocation }, monthlyPay: [...settings.monthlyPay], defaultRows: (settings.defaultRows || legacyRows).map(row => ({ ...row })), otherDefaults: (settings.otherDefaults || []).map(item => ({ ...item })) }
       : {};
     if (!existing) {
-      const entry = { month, salary: value, me: 0, wife: 0, son: 0, ...defaults };
+      const entry = { month, salary: value, me: 0, wife: 0, son: 0, ...defaults, ...(salaryDate ? { salaryDate } : {}) };
       entry.tenth = tenthFromSalary(value, entry);
       return [...data, entry];
     }
     return data.map(e => {
       if (e.month !== month) return e;
-      const updated = { ...defaults, ...e, salary: value };
+      const updated = { ...defaults, ...e, salary: value, ...(salaryDate ? { salaryDate } : {}) };
       updated.tenth = tenthFromSalary(value, updated);
       return updated;
     });
@@ -270,6 +278,7 @@ const Savings = (() => {
     const now = `${today.getFullYear()}-${pad2(today.getMonth() + 1)}-${pad2(today.getDate())}`;
     return (end < now ? end : now).replace(/-/g, '');
   };
+  const salaryDateOf = e => e.salaryDate || `${rateDate(e.month).slice(0, 4)}-${rateDate(e.month).slice(4, 6)}-${rateDate(e.month).slice(6, 8)}`;
   const prevDate = d => {
     const t = new Date(Date.UTC(+d.slice(0, 4), +d.slice(4, 6) - 1, +d.slice(6, 8) - 1));
     return `${t.getUTCFullYear()}${pad2(t.getUTCMonth() + 1)}${pad2(t.getUTCDate())}`;
@@ -425,7 +434,7 @@ const Savings = (() => {
     if (!(rate > 0)) return null;
     const salary = salaryOf(e);
     const alloc = allocationOf(e, family);
-    const otherSpending = (e.otherDefaults || []).filter(item => item.enabled !== false).reduce((total, item) =>
+    const otherSpending = (e.otherDefaults || []).filter(item => item.enabled !== false && item.showInSalary !== false).reduce((total, item) =>
       total + (item.currency === 'UAH' ? uahToUsd(item.amount, rate) : round2(item.amount)), 0);
     const spent = (salary - netSalaryOf(e)) + tenthFromSalary(salary, e) + savingOf(e) + investmentOf(e)
       + familyIds(family).reduce((s, id) => s + alloc[id], 0)
@@ -538,6 +547,6 @@ const Savings = (() => {
 
   return {
     FIELDS, ITEM_WHO, PEOPLE, fmt, sum, esc, salaryOf, salaryTotal, defaultRowValue, netSalaryOf, netSalaryTotal, tenthFromSalary, withTenth, afterTenthOf, afterTenthTotal, spendingsOf, incomesOf, spentOf, incomeOf, leftOf, spentTotals, incomeTotals, totals,
-    sortDesc, parseAmount, parseSalaryCsv, toSalaryCsv, nextFreeMonth, shiftMonth, copyEntry, upsert, remove, parseEntry, setSalary, MONTHLY_PAY_UAH, MONTHLY_PAY_LABELS, DEFAULT_ROWS, payOf, setMonthlyPay, setDefaultRows, setOtherDefaults, allocationOf, setAllocation, savingOf, setMonthlySaving, savingLeftOf, investmentOf, setMonthlyInvestment, investmentLeftOf, salaryLeftOf, salaryIncomeOf, taxOf, onePercentOf, monthLabel, isValidGithubConfig, githubUrl, encodeContent, decodeContent, encryptText, decryptText, isEncrypted, rateDate, prevDate, uahToUsd, TENTH_SPEND_UAH, addTenthSpending, DEFAULT_SETTINGS, normalizeSettings, parseItem, addItem, removeItem, toCsv, BACKUP_FORMAT, createBackup, isValidBackup
+    sortDesc, parseAmount, parseSalaryCsv, toSalaryCsv, nextFreeMonth, shiftMonth, copyEntry, upsert, remove, parseEntry, setSalary, MONTHLY_PAY_UAH, MONTHLY_PAY_LABELS, DEFAULT_ROWS, payOf, setMonthlyPay, setDefaultRows, setOtherDefaults, allocationOf, setAllocation, savingOf, setMonthlySaving, savingLeftOf, investmentOf, setMonthlyInvestment, investmentLeftOf, salaryLeftOf, salaryIncomeOf, taxOf, onePercentOf, monthLabel, salaryDateOf, isValidGithubConfig, githubUrl, encodeContent, decodeContent, encryptText, decryptText, isEncrypted, rateDate, prevDate, uahToUsd, TENTH_SPEND_UAH, addTenthSpending, DEFAULT_SETTINGS, normalizeSettings, parseItem, addItem, removeItem, toCsv, BACKUP_FORMAT, createBackup, isValidBackup
   };
 })();

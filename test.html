@@ -196,17 +196,19 @@ describe('Salary CSV import and export', () => {
   const rejects = text => {
     try { parseSalaryCsv(text); return false; } catch { return true; }
   };
-  it('exports only date and salary in descending month order', () =>
-    eq(toSalaryCsv([{ ...E('2026-01'), salary: 1200 }, { ...E('2026-02'), salary: 0 }, { ...E('2026-03'), salary: 25.5 }]),
-      'Date,Salary\r\n2026-03,25.50\r\n2026-01,1200.00'));
+  it('exports full salary dates and salary in descending month order', () =>
+    eq(toSalaryCsv([{ ...E('2026-01'), salary: 1200, salaryDate: '2026-01-15' }, { ...E('2026-02'), salary: 0 }, { ...E('2026-03'), salary: 25.5, salaryDate: '2026-03-09' }]),
+      'Date,Salary\r\n2026-03-09,25.50\r\n2026-01-15,1200.00'));
   it('imports its own export', () =>
-    eq(parseSalaryCsv('Date,Salary\r\n2026-03,25.50\r\n2026-01,1200.00'), [{ month: '2026-03', salary: 25.5 }, { month: '2026-01', salary: 1200 }]));
+    eq(parseSalaryCsv('Date,Salary\r\n2026-03-09,25.50\r\n2026-01-15,1200.00'), [
+      { month: '2026-03', salary: 25.5, salaryDate: '2026-03-09' }, { month: '2026-01', salary: 1200, salaryDate: '2026-01-15' }
+    ]));
   it('normalizes unpadded month values', () =>
     eq(parseSalaryCsv('Date,Salary\n2026-10,1000.00\n2026-9,1000.00\n2026-1,1000.00'), [
       { month: '2026-10', salary: 1000 }, { month: '2026-09', salary: 1000 }, { month: '2026-01', salary: 1000 }
     ]));
   it('accepts full ISO dates and month/year values', () =>
-    eq(parseSalaryCsv('Date,Salary\n2026-02-15,100\n3/2026,200'), [{ month: '2026-02', salary: 100 }, { month: '2026-03', salary: 200 }]));
+    eq(parseSalaryCsv('Date,Salary\n2026-02-15,100\n3/2026,200'), [{ month: '2026-02', salary: 100, salaryDate: '2026-02-15' }, { month: '2026-03', salary: 200 }]));
   it('imports quoted amounts with thousands separators', () =>
     eq(parseSalaryCsv('Month,Salary\n2026-01,"1,234.56"'), [{ month: '2026-01', salary: 1234.56 }]));
   it('rejects invalid dates, negative salaries, duplicates, and extra columns', () => {
@@ -280,6 +282,10 @@ describe('setSalary (My salary page)', () => {
   it('accepts a non-breaking space', () => eq(setSalary([], '2026-01', '4\u00a0655,81')[0].salary, 4655.81));
   it('accepts a comma as thousands separator when there is a dot', () => eq(setSalary([], '2026-01', '4,655.81')[0].salary, 4655.81));
   it('still accepts a plain number', () => eq(setSalary([], '2026-01', '4655.81')[0].salary, 4655.81));
+  it('stores the full salary date alongside its month key', () => {
+    const entry = setSalary([], '2026-03', '250', DEFAULT_SETTINGS, '2026-03-09')[0];
+    eq([entry.month, entry.salaryDate], ['2026-03', '2026-03-09']);
+  });
   it('sets the salary and recalculates 10% of an existing month', () => {
     const r = setSalary([E('2026-01', 1, 2, 3, 4)], '2026-01', '1000');
     eq([r[0].salary, r[0].tenth, r[0].me], [1000, 94, 1]);
@@ -475,9 +481,10 @@ describe('defaults for new salary lines (Config page)', () => {
     eq(settings.otherDefaults, [{ id: 'default_net', name: 'Internet', currency: 'UAH', amount: 450.5, enabled: true, showInSalary: false, showInHistory: false, includeInTotal: false }]);
   });
   it('makes deduction rates editable and can disable them', () => {
-    const defaultRows = DEFAULT_ROWS.map(row => row.id === 'rate_5'
-      ? { ...row, amount: 6, showInSalary: true, showInHistory: true, includeInTotal: true }
-      : row);
+    const defaultRows = DEFAULT_ROWS.map(row => ({ ...row,
+      showInSalary: true,
+      ...(row.id === 'rate_5' ? { amount: 6, showInHistory: true, includeInTotal: true } : {})
+    }));
     const settings = normalizeSettings({ defaultRows });
     const entry = setSalary([], '2026-05', '1000', settings)[0];
     eq([onePercentOf(1000, entry), taxOf(1000, entry), netSalaryOf(entry), tenthFromSalary(1000, entry)], [10, 60, 930, 93]);
