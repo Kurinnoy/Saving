@@ -211,9 +211,22 @@ const Savings = (() => {
     if (!values.length) throw new Error('The CSV has no salary rows.');
     return values.map((values, index) => {
       if (values.length !== 2) throw new Error(`CSV row ${index + (hasHeader ? 2 : 1)} must have exactly two columns.`);
-      const month = values[columns[0]].trim();
+      const date = values[columns[0]].trim();
+      let match = /^(\d{4})-(\d{1,2})(?:-(\d{1,2}))?$/.exec(date)
+        || /^(\d{4})\/(\d{1,2})$/.exec(date);
+      if (!match) {
+        const monthYear = /^(\d{1,2})[./-](\d{4})$/.exec(date);
+        if (monthYear) match = [date, monthYear[2], monthYear[1], undefined];
+      }
+      const year = match && Number(match[1]);
+      const monthNumber = match && Number(match[2]);
+      const day = match && match[3] === undefined ? undefined : Number(match && match[3]);
+      const validDay = day === undefined || (day >= 1 && day <= new Date(Date.UTC(year, monthNumber, 0)).getUTCDate());
+      const month = match && monthNumber >= 1 && monthNumber <= 12 && validDay
+        ? `${year}-${String(monthNumber).padStart(2, '0')}`
+        : '';
       const salary = parseAmount(values[columns[1]]);
-      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error(`CSV row ${index + (hasHeader ? 2 : 1)} has an invalid date.`);
+      if (!month) throw new Error(`CSV row ${index + (hasHeader ? 2 : 1)} has an invalid date.`);
       if (!Number.isFinite(salary) || salary < 0) throw new Error(`CSV row ${index + (hasHeader ? 2 : 1)} has an invalid salary.`);
       if (seen.has(month)) throw new Error(`The CSV contains more than one salary for ${month}.`);
       seen.add(month);

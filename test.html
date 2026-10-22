@@ -201,10 +201,16 @@ describe('Salary CSV import and export', () => {
       'Date,Salary\r\n2026-03,25.50\r\n2026-01,1200.00'));
   it('imports its own export', () =>
     eq(parseSalaryCsv('Date,Salary\r\n2026-03,25.50\r\n2026-01,1200.00'), [{ month: '2026-03', salary: 25.5 }, { month: '2026-01', salary: 1200 }]));
+  it('normalizes unpadded month values', () =>
+    eq(parseSalaryCsv('Date,Salary\n2026-10,1000.00\n2026-9,1000.00\n2026-1,1000.00'), [
+      { month: '2026-10', salary: 1000 }, { month: '2026-09', salary: 1000 }, { month: '2026-01', salary: 1000 }
+    ]));
+  it('accepts full ISO dates and month/year values', () =>
+    eq(parseSalaryCsv('Date,Salary\n2026-02-15,100\n3/2026,200'), [{ month: '2026-02', salary: 100 }, { month: '2026-03', salary: 200 }]));
   it('imports quoted amounts with thousands separators', () =>
     eq(parseSalaryCsv('Month,Salary\n2026-01,"1,234.56"'), [{ month: '2026-01', salary: 1234.56 }]));
   it('rejects invalid dates, negative salaries, duplicates, and extra columns', () => {
-    eq([rejects('Date,Salary\n2026-13,5'), rejects('Date,Salary\n2026-01,-5'), rejects('Date,Salary\n2026-01,5\n2026-01,6'), rejects('Date,Salary\n2026-01,5,extra')], [true, true, true, true]);
+    eq([rejects('Date,Salary\n2026-13,5'), rejects('Date,Salary\n2026-01,-5'), rejects('Date,Salary\n2026-9,5\n2026-09,6'), rejects('Date,Salary\n2026-01,5,extra')], [true, true, true, true]);
   });
 });
 
