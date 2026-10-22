@@ -27,6 +27,9 @@
   #foot td { font-weight: bold; }
   .scroll { overflow-x: auto; }
   .head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .historyActions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+  .historyActions button { padding: 6px 10px; font-size: 14px; }
+  #salaryIoStatus { min-height: 16px; margin: 0 0 8px; }
   .note { font-size: 12px; color: #777; }
   #formError { display: none; margin-top: 12px; padding: 12px 16px; border-radius: 6px; background: #fde4e4; color: #d00000; font-size: 20px; font-weight: bold; }
   .neg { color: #d33; }
@@ -64,12 +67,21 @@
   </div>
 
   <div class="card">
-    <div class="head"><h2>History</h2><button type="button" class="danger" id="clearHistory">Clear history</button></div>
+    <div class="head">
+      <h2>History</h2>
+      <div class="historyActions">
+        <button type="button" class="secondary" id="exportSalary">Export CSV</button>
+        <button type="button" class="secondary" id="chooseSalaryImport">Import CSV</button>
+        <input type="file" id="salaryImportFile" accept=".csv,text/csv" hidden>
+        <button type="button" class="danger" id="clearHistory">Clear history</button>
+      </div>
+    </div>
+    <p id="salaryIoStatus" class="note" role="status" aria-live="polite"></p>
     <div class="scroll">
       <table>
         <thead>
           <tr id="foot"></tr>
-          <tr><th>Month</th><th>Salary</th><th>Net salary</th><th></th></tr>
+            <tr id="salaryHead"></tr>
         </thead>
         <tbody id="rows"></tbody>
       </table>
@@ -82,9 +94,22 @@
 <script src="settings.js"></script>
 <script>
 const KEY = 'familySavings';
-const { fmt, PEOPLE, shiftMonth, copyEntry, remove, salaryOf, salaryTotal, netSalaryOf, withTenth, sortDesc, setSalary, MONTHLY_PAY_UAH, MONTHLY_PAY_LABELS, payOf, setMonthlyPay, allocationOf, setAllocation, savingOf, setMonthlySaving, investmentOf, setMonthlyInvestment, salaryLeftOf, taxOf, onePercentOf, monthLabel, rateDate, prevDate, uahToUsd, addTenthSpending } = Savings;
+const { fmt, esc, shiftMonth, copyEntry, remove, salaryOf, salaryTotal, defaultRowValue, netSalaryOf, withTenth, sortDesc, setSalary, MONTHLY_PAY_UAH, MONTHLY_PAY_LABELS, DEFAULT_ROWS, payOf, setMonthlyPay, setDefaultRows, setOtherDefaults, allocationOf, setAllocation, savingOf, setMonthlySaving, investmentOf, setMonthlyInvestment, salaryLeftOf, taxOf, onePercentOf, monthLabel, rateDate, prevDate, uahToUsd, addTenthSpending } = Savings;
 const RATES_KEY = 'uahUsdRates';
-const LABELS = { me: 'me', wife: 'wife', son: 'son' };
+let family = [];
+let PEOPLE = [];
+let LABELS = {};
+let salaryDefaultRows = [];
+let salaryOtherRows = [];
+function refreshFamily() {
+  const settings = AppSettings.load();
+  family = settings.family.filter(person => person.enabled);
+  PEOPLE = family.map(person => person.id);
+  LABELS = Object.fromEntries(family.map(person => [person.id, person.name]));
+  salaryDefaultRows = settings.defaultRows.filter(row => row.showInSalary);
+  salaryOtherRows = settings.otherDefaults.filter(row => row.showInSalary);
+}
+refreshFamily();
 const rates = JSON.parse(localStorage.getItem(RATES_KEY) || '{}');
 const pending = new Set();
 const $ = id => document.getElementById(id);
@@ -112,15 +137,28 @@ function childHtml(e) {
   const rate = rates[e.month];
   if (rate === undefined) loadRate(e.month);
   const usd = uah => rate ? '$' + fmt(uahToUsd(uah, rate)) : rate === null ? 'rate unavailable' : 'loading...';
-  const pay = payOf(e).map((uah, i) => `<div><span>${MONTHLY_PAY_LABELS[i]} <input name="pay" type="number" min="0" step="0.01" value="${uah}"> UAH</span><strong>${usd(uah)}</strong></div>`).join('');
-  const alloc = allocationOf(e);
-  const forWho = PEOPLE.map(f => `<div><span>For ${LABELS[f]} <input name="${f}" type="number" min="0" step="0.01" value="${alloc[f]}"></span></div>`).join('');
-  return `<tr class="child"><td colspan="4"><div class="calc">
-    <div><span>1%</span><strong>${fmt(onePercentOf(salaryOf(e)))}</strong></div>
-    <div><span>5%</span><strong>${fmt(taxOf(salaryOf(e)))}</strong></div>
-    <div><span>10%</span><strong>${fmt(e.tenth)}</strong></div>
+  const defaultRows = e.defaultRows || [];
+  const isEnabled = id => !Array.isArray(e.defaultRows) || defaultRows.some(row => row.id === id && row.enabled);
+  const pay = payOf(e).map((uah, i) => {
+    const id = `monthly_pay_${i}`;
+    const row = defaultRows.find(item => item.id === id);
+    if (!isEnabled(id)) return '';
+    return `<div><span>${esc(row ? row.name : MONTHLY_PAY_LABELS[i])} <input name="pay" type="number" min="0" step="0.01" value="${uah}"> UAH</span><strong>${usd(uah)}</strong></div>`;
+  }).join('');
+  const alloc = allocationOf(e, family);
+  const forWho = family.map(person => `<div><span>For ${esc(person.name)} <input name="${person.id}" type="number" min="0" step="0.01" value="${alloc[person.id]}"></span></div>`).join('');
+  const otherDefaults = (e.otherDefaults || []).filter(item => item.enabled !== false).map(item => `<div><span>${esc(item.name)} <input name="otherDefault" data-id="${esc(item.id)}" type="number" min="0" step="0.01" value="${item.amount}"> ${item.currency}</span><strong>${item.currency === 'UAH' ? usd(item.amount) : fmt(item.amount)}</strong></div>`).join('');
+  const deductions = Array.isArray(e.defaultRows)
+    ? defaultRows.filter(row => row.id.startsWith('rate_') && row.enabled)
+    : [{ id: 'rate_1', name: '1% deduction' }, { id: 'rate_5', name: '5% deduction' }, { id: 'rate_10', name: '10% deduction' }];
+  const deductionAmounts = { rate_1: onePercentOf(salaryOf(e), e), rate_5: taxOf(salaryOf(e), e), rate_10: fmt(e.tenth) };
+  const deductionHtml = deductions.map(row => `<div><span>${esc(row.name)}</span><strong>${deductionAmounts[row.id] ?? '0.00'}</strong></div>`).join('');
+  const savingField = isEnabled('monthly_saving') ? `<div><span>Monthly saving $ <input name="saving" type="number" min="0" step="0.01" value="${savingOf(e)}"></span></div>` : '';
+  const investmentField = isEnabled('monthly_investment') ? `<div><span>Monthly investment $ <input name="investment" type="number" min="0" step="0.01" value="${investmentOf(e)}"></span></div>` : '';
+  return `<tr class="child"><td colspan="${4 + salaryDefaultRows.length + salaryOtherRows.length}"><div class="calc">
+    ${deductionHtml}
     <div class="rate"><span>USD rate</span><strong>${rate ? `1 USD = ${rate} UAH` : rate === null ? 'unavailable' : 'loading...'}<button type="button" class="details" data-rate="${e.month}" ${pending.has(e.month) ? 'disabled' : ''}>${pending.has(e.month) ? 'Updating...' : 'Update rate'}</button></strong></div>
-    <form class="payForm" data-month="${e.month}"><div><span>Monthly saving $ <input name="saving" type="number" min="0" step="0.01" value="${savingOf(e)}"></span></div><div><span>Monthly investment $ <input name="investment" type="number" min="0" step="0.01" value="${investmentOf(e)}"></span></div>${forWho}${pay}<div class="save"><button type="submit">Save</button></div></form>
+    <form class="payForm" data-month="${e.month}">${savingField}${investmentField}${forWho}${pay}${otherDefaults}<div class="save"><button type="submit">Save</button></div></form>
   </div></td></tr>`;
 }
 
@@ -157,41 +195,84 @@ function leftHtml(e) {
   const rate = rates[e.month];
   if (rate === undefined) loadRate(e.month);
   if (!rate) return rate === null ? 'rate unavailable' : 'loading...';
-  const left = salaryLeftOf(e, rate);
+  const left = salaryLeftOf(e, rate, family);
   return `<span class="${left < 0 ? 'neg' : ''}">${fmt(left)}</span>`;
 }
 
 function render() {
   data = withTenth(sortDesc(data));
   const rows = data.filter(e => salaryOf(e) > 0);
+  const columns = [...salaryDefaultRows, ...salaryOtherRows];
+  const colCount = columns.length + 4;
+  $('salaryHead').innerHTML = '<th>Month</th><th>Salary</th><th>Net salary</th>' +
+    columns.map(row => `<th>${esc(row.name)} (${esc(row.currency === '%' ? 'USD' : row.currency)})</th>`).join('') + '<th></th>';
 
   $('rows').innerHTML = rows.map(e => `
     <tr>
       <td>${monthLabel(e.month)}</td>
       <td>${fmt(salaryOf(e))}</td>
       <td>${leftHtml(e)}</td>
+      ${columns.map(row => `<td>${fmt(defaultRowValue(e, row))}</td>`).join('')}
       <td>
         <button class="details" data-details="${e.month}">Details</button>
         <button class="copy" data-copy="${e.month}">Copy</button>
         <button class="edit" data-edit="${e.month}">Edit</button>
         <button class="danger" data-clear="${e.month}">Delete</button>
       </td>
-    </tr>${open.has(e.month) ? childHtml(e) : ''}`).join('') || '<tr><td colspan="4">No salary yet</td></tr>';
+    </tr>${open.has(e.month) ? childHtml(e) : ''}`).join('') || `<tr><td colspan="${colCount}">No salary yet</td></tr>`;
 
-  $('foot').innerHTML = rows.length ? `<td>Total</td><td>${fmt(salaryTotal(rows))}</td><td></td><td></td>` : '';
+  $('foot').innerHTML = rows.length ? `<td>Total</td><td>${fmt(salaryTotal(rows))}</td><td></td>${columns.map(row => `<td>${fmt(rows.reduce((sum, e) => sum + defaultRowValue(e, row), 0))}</td>`).join('')}<td></td>` : '';
 }
 
 // A new salary line spends the configured UAH amount from the 10% money, converted at that month's rate.
 async function addTenthForNewLine(month) {
+  const amount = AppSettings.load().tenthSpendUah;
+  if (!(amount > 0)) return;
   try {
     if (!rates[month]) rates[month] = await fetchRate(month);
-    data = addTenthSpending(data, month, rates[month], AppSettings.load().tenthSpendUah);
+    data = addTenthSpending(data, month, rates[month], amount);
     persist();
     render();
   } catch {
-    alert(`Could not get the exchange rate, so the ${AppSettings.load().tenthSpendUah} UAH spending from 10% was not added for ${monthLabel(month)}.`);
+    alert(`Could not get the exchange rate, so the ${amount} UAH spending from 10% was not added for ${monthLabel(month)}.`);
   }
 }
+
+$('exportSalary').addEventListener('click', () => {
+  const blob = new Blob([Savings.toSalaryCsv(data)], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'salary.csv';
+  link.click();
+  URL.revokeObjectURL(url);
+  $('salaryIoStatus').textContent = 'Salary CSV exported.';
+});
+
+$('chooseSalaryImport').addEventListener('click', () => $('salaryImportFile').click());
+
+$('salaryImportFile').addEventListener('change', async ev => {
+  const file = ev.target.files[0];
+  if (!file) return;
+  try {
+    await GitSync.ready();
+    const entries = Savings.parseSalaryCsv(await file.text());
+    if (!confirm(`Import ${entries.length} salary row(s)? Salary values for matching months will be replaced; other saved month details will be kept.`)) return;
+    const existing = new Set(data.filter(e => salaryOf(e) > 0).map(e => e.month));
+    const settings = AppSettings.load();
+    data = entries.reduce((current, entry) => setSalary(current, entry.month, String(entry.salary), settings), data);
+    persist();
+    render();
+    $('salaryIoStatus').textContent = `${entries.length} salary row(s) imported.`;
+    for (const entry of entries) {
+      if (entry.salary > 0 && !existing.has(entry.month)) await addTenthForNewLine(entry.month);
+    }
+  } catch (err) {
+    $('salaryIoStatus').textContent = err.message || 'Could not import the salary CSV.';
+  } finally {
+    ev.target.value = '';
+  }
+});
 
 $('form').addEventListener('submit', ev => {
   ev.preventDefault();
@@ -227,8 +308,13 @@ $('rows').addEventListener('submit', ev => {
   ev.preventDefault();
   const f = ev.target;
   const amounts = [...f.querySelectorAll('input[name=pay]')].map(i => i.value);
-  const alloc = Object.fromEntries(PEOPLE.map(p => [p, f.elements[p].value]));
-  data = setMonthlyInvestment(setMonthlySaving(setAllocation(setMonthlyPay(data, f.dataset.month, amounts), f.dataset.month, alloc), f.dataset.month, f.elements.saving.value), f.dataset.month, f.elements.investment.value);
+  const otherAmounts = Object.fromEntries([...f.querySelectorAll('input[name=otherDefault]')].map(i => [i.dataset.id, i.value]));
+  const alloc = Object.fromEntries(PEOPLE.map(p => [p, f.elements.namedItem(p).value]));
+  data = setAllocation(data, f.dataset.month, alloc);
+  if (amounts.length) data = setMonthlyPay(data, f.dataset.month, amounts);
+  data = setDefaultRows(data, f.dataset.month, otherAmounts);
+  if (f.elements.namedItem('saving')) data = setMonthlySaving(data, f.dataset.month, f.elements.namedItem('saving').value);
+  if (f.elements.namedItem('investment')) data = setMonthlyInvestment(data, f.dataset.month, f.elements.namedItem('investment').value);
   persist();
   render();
 });
@@ -268,6 +354,7 @@ $('rows').addEventListener('click', ev => {
 resetForm();
 render();
 GitSync.ready().then(() => {
+  refreshFamily();
   data = JSON.parse(sessionStorage.getItem(KEY) || '[]');
   render();
 });

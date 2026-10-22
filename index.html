@@ -79,11 +79,25 @@
 
 <script src="logic.js"></script>
 <script src="sync.js"></script>
+<script src="settings.js"></script>
 <script>
 const KEY = 'familySavings';
-const { FIELDS, ITEM_WHO, PEOPLE, fmt, sum, salaryOf, allocationOf, withTenth, esc, spendingsOf, incomesOf, spentOf, incomeOf, leftOf, spentTotals, incomeTotals, totals: calcTotals,
+const { fmt, salaryOf, defaultRowValue, allocationOf, withTenth, esc, spendingsOf, incomesOf, spentOf, incomeOf, leftOf,
   parseItem, addItem, removeItem, investmentLeftOf, savingLeftOf, monthLabel } = Savings;
-const LABELS = { me: 'Me', wife: 'Wife', son: 'Son', tenth: '10%', investment: 'Investment', saving: 'Monthly saving', other: 'Other' };
+let family = [];
+let PEOPLE = [];
+let LABELS = {};
+let historyDefaultRows = [];
+let historyOtherRows = [];
+function refreshFamily() {
+  const settings = AppSettings.load();
+  family = settings.family.filter(person => person.enabled);
+  PEOPLE = family.map(person => person.id);
+  LABELS = Object.fromEntries([...family.map(person => [person.id, person.name]), ['tenth', '10%'], ['investment', 'Investment'], ['saving', 'Monthly saving'], ['other', 'Other']]);
+  historyDefaultRows = settings.defaultRows.filter(row => row.showInHistory);
+  historyOtherRows = settings.otherDefaults.filter(row => row.showInHistory);
+}
+refreshFamily();
 const open = new Set();
 const $ = id => document.getElementById(id);
 let data = [];
@@ -95,8 +109,8 @@ const money = n => {
   return `<span class="${value.startsWith('-') ? 'neg' : ''}">${value}</span>`;
 };
 
-// History columns: what is left per person (saved + income - spent), then the 10% part.
-const COLUMNS = [...PEOPLE, 'tenth', 'other'];
+// History columns: the selected family members and designated savings buckets.
+let COLUMNS = [...PEOPLE, 'tenth', 'other'];
 
 // Investment: the month's My salary investment plus its income and spending lines.
 const investmentShown = investmentLeftOf;
@@ -105,22 +119,31 @@ const investmentShown = investmentLeftOf;
 const savingShown = savingLeftOf;
 
 // Row total: monthly saving, investment and what is left for each person; the 10% money is not included.
-const rowTotal = e => savingShown(e) + investmentShown(e) + COLUMNS.reduce((s, f) => s + leftOf(e, f), 0);
+const rowTotal = e => savingShown(e) + investmentShown(e) + COLUMNS.reduce((s, f) => s + leftOf(e, f, family), 0)
+  + [...historyDefaultRows, ...historyOtherRows].filter(row => row.includeInTotal).reduce((sum, row) => sum + defaultRowValue(e, row), 0);
 
-// Sortable History columns, in display order, with the value each one sorts by.
-const HEAD = [
-  ['month', 'Month', e => e.month],
-  ['saving', 'Monthly saving', savingShown],
-  ['investment', 'Investment', investmentShown],
-  ['me', 'Me', e => leftOf(e, 'me')],
-  ['wife', 'Wife', e => leftOf(e, 'wife')],
-  ['son', 'Son', e => leftOf(e, 'son')],
-  ['tenth', '10%', e => leftOf(e, 'tenth')],
-  ['other', 'Other', e => leftOf(e, 'other')],
-  ['total', 'Total', rowTotal]
-];
-const sortValue = Object.fromEntries(HEAD.map(([key, , value]) => [key, value]));
 let sort = { key: 'month', dir: 'desc' };
+let HEAD = [];
+let sortValue = {};
+
+function refreshHistoryHead() {
+  COLUMNS = [...PEOPLE, 'tenth', 'other'];
+  HEAD = [
+    ['month', 'Month', e => e.month],
+    ['saving', 'Monthly saving', savingShown],
+    ['investment', 'Investment', investmentShown],
+    ...family.map(person => [person.id, person.name, e => leftOf(e, person.id, family)]),
+    ['tenth', '10%', e => leftOf(e, 'tenth', family)],
+    ['other', 'Other', e => leftOf(e, 'other', family)],
+    ...historyDefaultRows.map(row => [row.id, `${row.name} (${row.currency === '%' ? 'USD' : row.currency})`, e => defaultRowValue(e, row)]),
+    ...historyOtherRows.map(row => [row.id, `${row.name} (${row.currency === '%' ? 'USD' : row.currency})`, e => defaultRowValue(e, row)]),
+    ['total', 'Total', rowTotal]
+  ];
+  sortValue = Object.fromEntries(HEAD.map(([key, , value]) => [key, value]));
+  if (!sortValue[sort.key]) sort = { key: 'month', dir: 'desc' };
+}
+
+refreshHistoryHead();
 
 const sortData = arr => {
   const value = sortValue[sort.key];
@@ -138,7 +161,7 @@ function itemRow(e, kind, s, fixed) {
   const action = fixed ? '' : `<button class="danger" data-delitem="${esc(s.id)}" data-kind="${kind}" data-month="${e.month}">Delete</button>`;
   return `<tr class="${income ? 'income' : 'spending'}${fixed ? ' fixed' : ''}">
     <td class="type">${income ? 'Income' : 'Spending'}</td>
-    <td class="who">${LABELS[s.who]}</td>
+    <td class="who">${esc(LABELS[s.who] || s.who)}</td>
     <td>${esc(s.note)}</td>
     <td class="amt">${fmt(s.amount)}</td>
     <td>${action}</td>
@@ -149,8 +172,8 @@ function itemRow(e, kind, s, fixed) {
 function detailsTable(e) {
   const rows = [];
   if (salaryOf(e) > 0 || e.allocation) {
-    const alloc = allocationOf(e);
-    PEOPLE.forEach(f => rows.push(itemRow(e, 'incomes', { who: f, note: 'From My salary', amount: alloc[f] }, true)));
+    const alloc = allocationOf(e, family);
+    family.forEach(person => rows.push(itemRow(e, 'incomes', { who: person.id, note: 'From My salary', amount: alloc[person.id] }, true)));
   }
   incomesOf(e).forEach(s => rows.push(itemRow(e, 'incomes', s, false)));
   spendingsOf(e).forEach(s => rows.push(itemRow(e, 'spendings', s, false)));
@@ -164,47 +187,49 @@ function detailsTable(e) {
 function detailsHtml(e) {
   const form = `<form class="spendForm" data-month="${e.month}">
     <label class="incomeToggle"><input type="checkbox" name="income"> Income</label>
-    <select name="who">${ITEM_WHO.map(f => `<option value="${f}">${LABELS[f]}</option>`).join('')}</select>
+    <select name="who">${[...family.map(person => [person.id, person.name]), ['tenth', '10%'], ['investment', 'Investment'], ['saving', 'Monthly saving'], ['other', 'Other']].map(([id, label]) => `<option value="${esc(id)}">${esc(label)}</option>`).join('')}</select>
     <input name="note" placeholder="Note">
     <input name="amount" type="number" min="0.01" step="0.01" placeholder="Amount" required>
     <button type="submit">Add</button>
   </form>`;
-  return `<tr class="child"><td colspan="10">${form}${detailsTable(e)}</td></tr>`;
+  return `<tr class="child"><td colspan="${HEAD.length + 1}">${form}${detailsTable(e)}</td></tr>`;
 }
 
 function render() {
   data = withTenth(sortData(data));
-  const totals = calcTotals(data);
-  const spent = spentTotals(data);
-  const income = incomeTotals(data);
-  const left = k => totals[k] + income[k] - spent[k];
-  const small = k => `<small>Saved ${fmt(totals[k])} | Income ${fmt(income[k])} | Spent ${fmt(spent[k])}</small>`;
+  const saved = id => data.reduce((s, e) => s + (e[id] || 0), 0);
+  const income = id => data.reduce((s, e) => s + incomeOf(e, id, family), 0);
+  const spent = id => data.reduce((s, e) => s + spentOf(e, id), 0);
+  const left = id => data.reduce((s, e) => s + leftOf(e, id, family), 0);
+  const small = id => `<small>Saved ${fmt(saved(id))} | Income ${fmt(income(id))} | Spent ${fmt(spent(id))}</small>`;
 
   $('headRow').innerHTML = HEAD.map(([key, label]) => {
     const arrow = sort.key === key ? (sort.dir === 'asc' ? ' \u25B2' : ' \u25BC') : '';
-    return `<th class="sortable" data-key="${key}">${label}${arrow}</th>`;
+    return `<th class="sortable" data-key="${esc(key)}">${esc(label)}${arrow}</th>`;
   }).join('') + '<th></th>';
 
   $('totals').innerHTML =
     `<div class="total"><span>Monthly saving</span><strong>${fmt(data.reduce((s, e) => s + savingShown(e), 0))}</strong></div>
      <div class="total"><span>Investment</span><strong>${money(data.reduce((s, e) => s + investmentShown(e), 0))}</strong></div>` +
-    [['My money', 'me'], ['Wife money', 'wife'], ['Son money', 'son'], ['10% money', 'tenth']]
-      .map(([l, f]) => `<div class="total"><span>${l}</span><strong>${money(left(f))}</strong>${small(f)}</div>`).join('');
+    family.map(person => `<div class="total"><span>${esc(person.name)} money</span><strong>${money(left(person.id))}</strong>${small(person.id)}</div>`).join('') +
+    `<div class="total"><span>10% money</span><strong>${money(left('tenth'))}</strong>${small('tenth')}</div>` +
+    `<div class="total"><span>Other</span><strong>${money(left('other'))}</strong><small>Income ${fmt(income('other'))} | Spent ${fmt(spent('other'))}</small></div>`;
 
   $('rows').innerHTML = data.map(e => `
     <tr>
       <td>${monthLabel(e.month)}</td>
       <td>${fmt(savingShown(e))}</td>
       <td>${fmt(investmentShown(e))}</td>
-      ${COLUMNS.map(f => `<td>${money(leftOf(e, f))}</td>`).join('')}
+      ${COLUMNS.map(f => `<td>${money(leftOf(e, f, family))}</td>`).join('')}
+      ${[...historyDefaultRows, ...historyOtherRows].map(row => `<td>${money(defaultRowValue(e, row))}</td>`).join('')}
       <td><strong>${money(rowTotal(e))}</strong></td>
       <td>
         <button class="spend" data-spend="${e.month}">Income/Spending (${incomesOf(e).length}/${spendingsOf(e).length})</button>
       </td>
-    </tr>${open.has(e.month) ? detailsHtml(e) : ''}`).join('') || '<tr><td colspan="10">No data yet</td></tr>';
+    </tr>${open.has(e.month) ? detailsHtml(e) : ''}`).join('') || `<tr><td colspan="${HEAD.length + 1}">No data yet</td></tr>`;
 
   $('foot').innerHTML = data.length
-    ? `<td>Total</td><td>${fmt(data.reduce((s, e) => s + savingShown(e), 0))}</td><td>${fmt(data.reduce((s, e) => s + investmentShown(e), 0))}</td>${COLUMNS.map(f => `<td>${money(data.reduce((s, e) => s + leftOf(e, f), 0))}</td>`).join('')}<td><strong>${money(data.reduce((s, e) => s + rowTotal(e), 0))}</strong></td><td></td>`
+    ? `<td>Total</td><td>${fmt(data.reduce((s, e) => s + savingShown(e), 0))}</td><td>${fmt(data.reduce((s, e) => s + investmentShown(e), 0))}</td>${COLUMNS.map(f => `<td>${money(data.reduce((s, e) => s + leftOf(e, f, family), 0))}</td>`).join('')}${[...historyDefaultRows, ...historyOtherRows].map(row => `<td>${money(data.reduce((s, e) => s + defaultRowValue(e, row), 0))}</td>`).join('')}<td><strong>${money(data.reduce((s, e) => s + rowTotal(e), 0))}</strong></td><td></td>`
     : '';
 }
 
@@ -220,7 +245,7 @@ $('clearHistory').addEventListener('click', () => {
 $('rows').addEventListener('submit', ev => {
   ev.preventDefault();
   const f = ev.target;
-  const spending = parseItem({ who: f.who.value, note: f.note.value, amount: f.amount.value });
+  const spending = parseItem({ who: f.who.value, note: f.note.value, amount: f.amount.value }, PEOPLE);
   if (!spending) return;
   data = addItem(data, f.dataset.month, f.income.checked ? 'incomes' : 'spendings', spending);
   persist();
@@ -255,6 +280,8 @@ $('headRow').addEventListener('click', ev => {
 
 render();
 GitSync.ready().then(() => {
+  refreshFamily();
+  refreshHistoryHead();
   data = JSON.parse(sessionStorage.getItem(KEY) || '[]');
   render();
 });

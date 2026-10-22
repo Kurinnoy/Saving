@@ -50,10 +50,11 @@ const GitSync = (() => {
     if (!c.password) throw new Error('Set an encryption password on the Config page: data is only sent to GitHub encrypted.');
     if (sessionStorage.getItem(KEY) === null) throw new Error('No data is loaded in this session.');
     const existing = await getFile(c);
-    if (existing && !allowEmpty && data().length === 0 && (await fetchRemote(c)).length > 0) {
+    if (existing && !allowEmpty && data().length === 0 && (await fetchRemote(c)).data.length > 0) {
       throw new Error('Refusing to replace the data in GitHub with an empty list');
     }
-    const text = await Savings.encryptText(JSON.stringify(data(), null, 2), c.password);
+    const backup = Savings.createBackup(data(), AppSettings.load());
+    const text = await Savings.encryptText(JSON.stringify(backup, null, 2), c.password);
     const body = { message: `Update savings data ${new Date().toISOString()}`, content: encodeContent(text), branch: c.branch };
     if (existing) body.sha = existing.sha;
     const res = await fetch(githubUrl(c), { method: 'PUT', headers: { ...headers(c), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -136,19 +137,21 @@ const GitSync = (() => {
   // Reads and decrypts the file from GitHub; [] when it does not exist yet.
   async function fetchRemote(c) {
     const file = await getFile(c);
-    if (!file || !file.content) return [];
+    if (!file || !file.content) return { data: [], settings: null };
     let text = Savings.decodeContent(file.content);
     if (Savings.isEncrypted(text)) text = await Savings.decryptText(text, c.password);
     const remote = JSON.parse(text);
     if (!Savings.isValidBackup(remote)) throw new Error('The file in GitHub is not valid savings data.');
-    return remote;
+    return Array.isArray(remote)
+      ? { data: remote, settings: null }
+      : { data: remote.data, settings: remote.settings };
   }
 
   // First auto-save from this session: never overwrite GitHub months this session does not have.
   async function checkBeforeFirstPush(c) {
     const remote = await fetchRemote(c);
     const local = new Set(data().map(e => e.month));
-    if (remote.some(e => !local.has(e.month))) {
+    if (remote.data.some(e => !local.has(e.month))) {
       throw new Error('GitHub has data this session does not have: reload the page or load it on the Config page');
     }
   }
@@ -210,9 +213,14 @@ const GitSync = (() => {
     show('Loading from GitHub...', true);
     try {
       const remote = await fetchRemote(config());
-      sessionStorage.setItem(KEY, JSON.stringify(remote));
+      sessionStorage.setItem(KEY, JSON.stringify(remote.data));
+      if (remote.settings) {
+        const settings = JSON.stringify(remote.settings);
+        sessionStorage.setItem('savingsDefaults', settings);
+        localStorage.setItem('savingsDefaults', settings);
+      }
       sessionStorage.setItem(SYNCED_KEY, '1');
-      show(`Loaded ${remote.length} month(s) from GitHub`, true);
+      show(`Loaded ${remote.data.length} month(s) from GitHub`, true);
     } catch (err) {
       show(`GitHub load failed: ${err.message}`, false);
     }
