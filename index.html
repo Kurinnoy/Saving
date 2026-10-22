@@ -7,7 +7,7 @@
 <style>
   * { box-sizing: border-box; }
   body { font-family: system-ui, sans-serif; margin: 0; background: #f3f5f9; color: #222; }
-  main { max-width: 900px; margin: 0 auto; padding: 20px; }
+  main { width: 90%; margin: 0 auto; padding: 20px; }
   h1 { margin-top: 0; }
   .card { background: #fff; border-radius: 10px; padding: 16px; margin-bottom: 20px; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
   .totals { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
@@ -83,7 +83,7 @@
 const KEY = 'familySavings';
 const { FIELDS, ITEM_WHO, PEOPLE, fmt, sum, salaryOf, allocationOf, withTenth, esc, spendingsOf, incomesOf, spentOf, incomeOf, leftOf, spentTotals, incomeTotals, totals: calcTotals,
   parseItem, addItem, removeItem, investmentLeftOf, savingLeftOf, monthLabel } = Savings;
-const LABELS = { me: 'Me', wife: 'Wife', son: 'Son', tenth: '10%', investment: 'Investment', saving: 'Monthly saving' };
+const LABELS = { me: 'Me', wife: 'Wife', son: 'Son', tenth: '10%', investment: 'Investment', saving: 'Monthly saving', other: 'Other' };
 const open = new Set();
 const $ = id => document.getElementById(id);
 let data = [];
@@ -93,7 +93,7 @@ const persist = () => { sessionStorage.setItem(KEY, JSON.stringify(data)); GitSy
 const money = n => `<span class="${n < 0 ? 'neg' : ''}">${fmt(n)}</span>`;
 
 // History columns: what is left per person (saved + income - spent), then the 10% part.
-const COLUMNS = [...PEOPLE, 'tenth'];
+const COLUMNS = [...PEOPLE, 'tenth', 'other'];
 
 // Investment: the month's My salary investment plus its income and spending lines.
 const investmentShown = investmentLeftOf;
@@ -102,7 +102,7 @@ const investmentShown = investmentLeftOf;
 const savingShown = savingLeftOf;
 
 // Row total: monthly saving, investment and what is left for each person; the 10% money is not included.
-const rowTotal = e => savingShown(e) + investmentShown(e) + PEOPLE.reduce((s, f) => s + leftOf(e, f), 0);
+const rowTotal = e => savingShown(e) + investmentShown(e) + COLUMNS.reduce((s, f) => s + leftOf(e, f), 0);
 
 // Sortable History columns, in display order, with the value each one sorts by.
 const HEAD = [
@@ -113,6 +113,7 @@ const HEAD = [
   ['wife', 'Wife', e => leftOf(e, 'wife')],
   ['son', 'Son', e => leftOf(e, 'son')],
   ['tenth', '10%', e => leftOf(e, 'tenth')],
+  ['other', 'Other', e => leftOf(e, 'other')],
   ['total', 'Total', rowTotal]
 ];
 const sortValue = Object.fromEntries(HEAD.map(([key, , value]) => [key, value]));
@@ -165,7 +166,7 @@ function detailsHtml(e) {
     <input name="amount" type="number" min="0.01" step="0.01" placeholder="Amount" required>
     <button type="submit">Add</button>
   </form>`;
-  return `<tr class="child"><td colspan="9">${form}${detailsTable(e)}</td></tr>`;
+  return `<tr class="child"><td colspan="10">${form}${detailsTable(e)}</td></tr>`;
 }
 
 function render() {
@@ -197,7 +198,7 @@ function render() {
       <td>
         <button class="spend" data-spend="${e.month}">Income/Spending (${incomesOf(e).length}/${spendingsOf(e).length})</button>
       </td>
-    </tr>${open.has(e.month) ? detailsHtml(e) : ''}`).join('') || '<tr><td colspan="9">No data yet</td></tr>';
+    </tr>${open.has(e.month) ? detailsHtml(e) : ''}`).join('') || '<tr><td colspan="10">No data yet</td></tr>';
 
   $('foot').innerHTML = data.length
     ? `<td>Total</td><td>${fmt(data.reduce((s, e) => s + savingShown(e), 0))}</td><td>${fmt(data.reduce((s, e) => s + investmentShown(e), 0))}</td>${COLUMNS.map(f => `<td>${money(data.reduce((s, e) => s + leftOf(e, f), 0))}</td>`).join('')}<td><strong>${money(data.reduce((s, e) => s + rowTotal(e), 0))}</strong></td><td></td>`
@@ -221,6 +222,12 @@ $('rows').addEventListener('submit', ev => {
   data = addItem(data, f.dataset.month, f.income.checked ? 'incomes' : 'spendings', spending);
   persist();
   render();
+});
+
+$('rows').addEventListener('change', ev => {
+  if (ev.target.name !== 'who') return;
+  ev.target.form.elements.note.required = ev.target.value === 'other';
+  ev.target.form.elements.note.placeholder = ev.target.value === 'other' ? 'Description' : 'Note';
 });
 
 $('rows').addEventListener('click', ev => {

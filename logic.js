@@ -12,7 +12,8 @@ const Savings = (() => {
   // Income and spending lines can also belong to the investment or the monthly saving, which are not saved fields.
   const INVESTMENT = 'investment';
   const SAVING = 'saving';
-  const EXTRA_WHO = [INVESTMENT, SAVING];
+  const OTHER = 'other';
+  const EXTRA_WHO = [INVESTMENT, SAVING, OTHER];
   const ITEM_WHO = [...FIELDS, ...EXTRA_WHO];
   const itemsOf = (e, kind) => e[kind] || [];
   const spendingsOf = e => itemsOf(e, 'spendings');
@@ -40,7 +41,9 @@ const Savings = (() => {
   const incomeTotals = data => itemTotals(data, 'incomes');
 
   // Left = saved + income - spent.
-  const leftOf = (e, who) => (who ? e[who] : sum(e)) + incomeOf(e, who) - spentOf(e, who);
+  const leftOf = (e, who) => who === OTHER
+    ? incomeOf(e, OTHER) - spentOf(e, OTHER)
+    : (who ? e[who] : sum(e)) + incomeOf(e, who) - spentOf(e, who);
 
   const totals = data => {
     const t = Object.fromEntries(FIELDS.map(f => [f, data.reduce((s, e) => s + e[f], 0)]));

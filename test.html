@@ -440,6 +440,20 @@ describe('investment income and spending', () => {
   });
 });
 
+describe('other income and spending', () => {
+  const m = { ...E('2026-01', 10, 20, 30, 40), incomes: [S('a', 'other', 25)], spendings: [S('b', 'other', 7)] };
+  it('parseItem accepts Other with a description', () => {
+    const item = parseItem({ who: 'other', note: 'Gift', amount: '25' });
+    eq([item.who, item.note, item.amount], ['other', 'Gift', 25]);
+  });
+  it('calculates Other as income minus spending', () => eq(leftOf(m, 'other'), 18));
+  it('does not change the existing person or general balances', () => {
+    eq(leftOf(m, 'me'), 10);
+    eq(leftOf(m), 100);
+  });
+  it('backup accepts Other entries', () => eq(isValidBackup([m]), true));
+});
+
 describe('GitHub config helpers', () => {
   const c = { owner: 'me', repo: 'my-data', branch: 'main', path: 'data/savings.json', token: 'x' };
   it('accepts a full config', () => eq(isValidGithubConfig(c), true));

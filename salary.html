@@ -36,6 +36,8 @@
   .calc div { display: flex; flex-direction: column; gap: 4px; }
   .calc span { color: #555; font-size: 13px; }
   .calc strong { font-weight: 600; }
+  .calc .rate strong { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .calc .rate button { padding: 4px 8px; font-size: 13px; }
   .calc form { display: contents; }
   .calc input { width: 100%; padding: 4px 6px; font-size: 14px; }
   .calc .save { grid-column: 1 / -1; align-items: flex-start; }
@@ -62,7 +64,7 @@
   </div>
 
   <div class="card">
-    <div class="head"><h2>History</h2><div class="tools"><button type="button" class="secondary" id="shiftBack">Shift all &minus;1 month</button><button type="button" class="danger" id="clearHistory">Clear history</button></div></div>
+    <div class="head"><h2>History</h2><button type="button" class="danger" id="clearHistory">Clear history</button></div>
     <div class="scroll">
       <table>
         <thead>
@@ -117,7 +119,7 @@ function childHtml(e) {
     <div><span>1%</span><strong>${fmt(onePercentOf(salaryOf(e)))}</strong></div>
     <div><span>5%</span><strong>${fmt(taxOf(salaryOf(e)))}</strong></div>
     <div><span>10%</span><strong>${fmt(e.tenth)}</strong></div>
-    <div><span>USD rate</span><strong>${rate ? `1 USD = ${rate} UAH` : rate === null ? 'unavailable' : 'loading...'}</strong></div>
+    <div class="rate"><span>USD rate</span><strong>${rate ? `1 USD = ${rate} UAH` : rate === null ? 'unavailable' : 'loading...'}<button type="button" class="details" data-rate="${e.month}" ${pending.has(e.month) ? 'disabled' : ''}>${pending.has(e.month) ? 'Updating...' : 'Update rate'}</button></strong></div>
     <form class="payForm" data-month="${e.month}"><div><span>Monthly saving $ <input name="saving" type="number" min="0" step="0.01" value="${savingOf(e)}"></span></div><div><span>Monthly investment $ <input name="investment" type="number" min="0" step="0.01" value="${investmentOf(e)}"></span></div>${forWho}${pay}<div class="save"><button type="submit">Save</button></div></form>
   </div></td></tr>`;
 }
@@ -221,16 +223,6 @@ $('clearHistory').addEventListener('click', () => {
   render();
 });
 
-$('shiftBack').addEventListener('click', () => {
-  if (!data.length || !confirm('Move every salary line back by one month?')) return;
-  data = data.map(e => ({ ...e, month: shiftMonth(e.month, -1) }));
-  const shifted = new Set([...open].map(m => shiftMonth(m, -1)));
-  open.clear();
-  shifted.forEach(m => open.add(m));
-  persist();
-  render();
-});
-
 $('rows').addEventListener('submit', ev => {
   ev.preventDefault();
   const f = ev.target;
@@ -242,8 +234,12 @@ $('rows').addEventListener('submit', ev => {
 });
 
 $('rows').addEventListener('click', ev => {
-  const { edit, clear, details, copy } = ev.target.dataset;
-  if (copy) {
+  const { edit, clear, details, copy, rate } = ev.target.dataset;
+  if (rate) {
+    delete rates[rate];
+    render();
+    loadRate(rate);
+  } else if (copy) {
     const before = new Set(data.filter(e => salaryOf(e) > 0).map(e => e.month));
     data = copyEntry(data, copy);
     persist();
