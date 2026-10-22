@@ -1,9 +1,14 @@
 const Savings = (() => {
   const FIELDS = ['me', 'wife', 'son', 'tenth'];
 
-  const fmt = n => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const round2 = n => {
+    const rounded = Math.round(n * 100) / 100;
+    return rounded === 0 ? 0 : rounded;
+  };
+  const nonNegativeAmount = value => round2(Math.max(0, parseFloat(value) || 0));
+  const fmt = n => round2(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  const sum = e => FIELDS.reduce((s, f) => s + e[f], 0);
+  const sum = e => round2(FIELDS.reduce((s, f) => s + e[f], 0));
 
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -19,35 +24,35 @@ const Savings = (() => {
   const spendingsOf = e => itemsOf(e, 'spendings');
   const incomesOf = e => itemsOf(e, 'incomes');
 
-  const sumItems = (e, kind, who) => itemsOf(e, kind)
+  const sumItems = (e, kind, who) => round2(itemsOf(e, kind)
     .filter(s => who ? s.who === who : !EXTRA_WHO.includes(s.who))
-    .reduce((s, x) => s + x.amount, 0);
+    .reduce((s, x) => s + x.amount, 0));
   const spentOf = (e, who) => sumItems(e, 'spendings', who);
   // Income = typed income lines + the per-person amounts of the month's My salary details.
   const salaryIncomeOf = (e, who) => {
     if (!(salaryOf(e) > 0 || e.allocation)) return 0;
     const alloc = allocationOf(e);
-    return who ? alloc[who] || 0 : PEOPLE.reduce((s, f) => s + alloc[f], 0);
+    return round2(who ? alloc[who] || 0 : PEOPLE.reduce((s, f) => s + alloc[f], 0));
   };
-  const incomeOf = (e, who) => sumItems(e, 'incomes', who) + salaryIncomeOf(e, who);
+  const incomeOf = (e, who) => round2(sumItems(e, 'incomes', who) + salaryIncomeOf(e, who));
 
   const itemTotals = (data, kind) => {
     const amount = (e, f) => kind === 'incomes' ? incomeOf(e, f) : sumItems(e, kind, f);
-    const t = Object.fromEntries(FIELDS.map(f => [f, data.reduce((s, e) => s + amount(e, f), 0)]));
-    t.all = FIELDS.reduce((s, f) => s + t[f], 0);
+    const t = Object.fromEntries(FIELDS.map(f => [f, round2(data.reduce((s, e) => s + amount(e, f), 0))]));
+    t.all = round2(FIELDS.reduce((s, f) => s + t[f], 0));
     return t;
   };
   const spentTotals = data => itemTotals(data, 'spendings');
   const incomeTotals = data => itemTotals(data, 'incomes');
 
   // Left = saved + income - spent.
-  const leftOf = (e, who) => who === OTHER
+  const leftOf = (e, who) => round2(who === OTHER
     ? incomeOf(e, OTHER) - spentOf(e, OTHER)
-    : (who ? e[who] : sum(e)) + incomeOf(e, who) - spentOf(e, who);
+    : (who ? e[who] : sum(e)) + incomeOf(e, who) - spentOf(e, who));
 
   const totals = data => {
-    const t = Object.fromEntries(FIELDS.map(f => [f, data.reduce((s, e) => s + e[f], 0)]));
-    t.all = FIELDS.reduce((s, f) => s + t[f], 0);
+    const t = Object.fromEntries(FIELDS.map(f => [f, round2(data.reduce((s, e) => s + e[f], 0))]));
+    t.all = round2(FIELDS.reduce((s, f) => s + t[f], 0));
     return t;
   };
 
@@ -113,20 +118,19 @@ const Savings = (() => {
   const PEOPLE = FIELDS.filter(f => f !== 'tenth');
 
   const parseEntry = (month, values) => {
-    const entry = { month, salary: Math.max(0, parseFloat(values.salary) || 0) };
-    PEOPLE.forEach(f => entry[f] = Math.max(0, parseFloat(values[f]) || 0));
+    const entry = { month, salary: nonNegativeAmount(values.salary) };
+    PEOPLE.forEach(f => entry[f] = nonNegativeAmount(values[f]));
     entry.tenth = tenthFromSalary(entry.salary);
     return entry;
   };
 
   // Salary is shown for reference only and is not part of the saved total.
-  const salaryOf = e => e.salary || 0;
-  const salaryTotal = data => data.reduce((s, e) => s + salaryOf(e), 0);
+  const salaryOf = e => round2(e.salary || 0);
+  const salaryTotal = data => round2(data.reduce((s, e) => s + salaryOf(e), 0));
 
   const TAX_RATE = 0.05;
   const ONE_RATE = 0.01;
   const TENTH_RATE = 0.1;
-  const round2 = n => Math.round(n * 100) / 100;
   const taxOf = salary => round2(salary * TAX_RATE);
   const onePercentOf = salary => round2(salary * ONE_RATE);
   const netFromSalary = salary => round2(salary * (1 - TAX_RATE - ONE_RATE));
@@ -147,7 +151,7 @@ const Savings = (() => {
   const parseAmount = v => {
     let s = String(v ?? '').replace(/[\s\u00a0]/g, '');
     s = s.includes(',') && s.includes('.') ? s.replace(/,/g, '') : s.replace(',', '.');
-    return parseFloat(s);
+    return round2(parseFloat(s));
   };
 
   const setSalary = (data, month, salary, settings) => {
@@ -189,37 +193,37 @@ const Savings = (() => {
     return addItem(data, month, 'spendings', item);
   };
   // Months saved with fewer amounts than today's list keep their own and take the default for the new ones.
-  const payOf = e => MONTHLY_PAY_UAH.map((d, i) => (e.monthlyPay && e.monthlyPay[i] !== undefined ? e.monthlyPay[i] : d));
+  const payOf = e => MONTHLY_PAY_UAH.map((d, i) => round2(e.monthlyPay && e.monthlyPay[i] !== undefined ? e.monthlyPay[i] : d));
 
   // Monthly saving in USD; every month starts from the default.
   const MONTHLY_SAVING_DEFAULT = 1000;
-  const savingOf = e => e.monthlySaving ?? MONTHLY_SAVING_DEFAULT;
+  const savingOf = e => round2(e.monthlySaving ?? MONTHLY_SAVING_DEFAULT);
   // Monthly saving of a month with a salary, plus its saving income, minus its saving spending.
-  const savingLeftOf = e => (salaryOf(e) > 0 ? savingOf(e) : 0) + sumItems(e, 'incomes', SAVING) - sumItems(e, 'spendings', SAVING);
+  const savingLeftOf = e => round2((salaryOf(e) > 0 ? savingOf(e) : 0) + sumItems(e, 'incomes', SAVING) - sumItems(e, 'spendings', SAVING));
   const setMonthlySaving = (data, month, amount) =>
-    data.map(e => e.month === month ? { ...e, monthlySaving: Math.max(0, parseFloat(amount) || 0) } : e);
+    data.map(e => e.month === month ? { ...e, monthlySaving: nonNegativeAmount(amount) } : e);
 
   // Monthly investment in USD; every month starts from the default.
   const MONTHLY_INVESTMENT_DEFAULT = 500;
-  const investmentOf = e => e.monthlyInvestment ?? MONTHLY_INVESTMENT_DEFAULT;
+  const investmentOf = e => round2(e.monthlyInvestment ?? MONTHLY_INVESTMENT_DEFAULT);
   const setMonthlyInvestment = (data, month, amount) =>
-    data.map(e => e.month === month ? { ...e, monthlyInvestment: Math.max(0, parseFloat(amount) || 0) } : e);
+    data.map(e => e.month === month ? { ...e, monthlyInvestment: nonNegativeAmount(amount) } : e);
   // Monthly investment of a month with a salary, plus its investment income, minus its investment spending.
-  const investmentLeftOf = e => (salaryOf(e) > 0 ? investmentOf(e) : 0) + sumItems(e, 'incomes', INVESTMENT) - sumItems(e, 'spendings', INVESTMENT);
+  const investmentLeftOf = e => round2((salaryOf(e) > 0 ? investmentOf(e) : 0) + sumItems(e, 'incomes', INVESTMENT) - sumItems(e, 'spendings', INVESTMENT));
 
   // Amounts set aside for each person in a month; every month starts from these defaults.
   const ALLOCATION_DEFAULT = { me: 275, wife: 275, son: 100 };
-  const allocationOf = e => ({ ...ALLOCATION_DEFAULT, ...(e.allocation || {}) });
+  const allocationOf = e => Object.fromEntries(PEOPLE.map(f => [f, round2((e.allocation || {})[f] ?? ALLOCATION_DEFAULT[f])]));
   const setAllocation = (data, month, values) =>
     data.map(e => e.month === month
-      ? { ...e, allocation: Object.fromEntries(PEOPLE.map(f => [f, Math.max(0, parseFloat(values[f]) || 0)])) }
+      ? { ...e, allocation: Object.fromEntries(PEOPLE.map(f => [f, nonNegativeAmount(values[f])])) }
       : e);
   const setMonthlyPay = (data, month, amounts) =>
-    data.map(e => e.month === month ? { ...e, monthlyPay: amounts.map(v => Math.max(0, parseFloat(v) || 0)) } : e);
+    data.map(e => e.month === month ? { ...e, monthlyPay: amounts.map(nonNegativeAmount) } : e);
 
   // Defaults for new salary lines, editable on the Config page; the built-in values are the fallback.
   const DEFAULT_SETTINGS = { monthlySaving: MONTHLY_SAVING_DEFAULT, monthlyInvestment: MONTHLY_INVESTMENT_DEFAULT, allocation: ALLOCATION_DEFAULT, monthlyPay: MONTHLY_PAY_UAH, tenthSpendUah: TENTH_SPEND_UAH };
-  const nonNegative = (v, fallback) => { const n = parseFloat(v); return Number.isFinite(n) && n >= 0 ? n : fallback; };
+  const nonNegative = (v, fallback) => { const n = parseFloat(v); return Number.isFinite(n) && n >= 0 ? round2(n) : fallback; };
   const normalizeSettings = (raw) => {
     const s = raw && typeof raw === 'object' ? raw : {};
     const d = DEFAULT_SETTINGS;
@@ -288,7 +292,7 @@ const Savings = (() => {
   };
 
   const parseItem = ({ who, note, amount }) => {
-    const value = parseFloat(amount);
+    const value = round2(parseFloat(amount));
     if (!ITEM_WHO.includes(who) || !(value > 0)) return null;
     return { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), who, note: String(note || '').trim(), amount: value };
   };
@@ -302,7 +306,7 @@ const Savings = (() => {
     mapMonth(data, month, e => ({ ...e, [kind]: itemsOf(e, kind).filter(s => s.id !== id) }));
 
   const toCsv = data => ['Month,Salary,Net salary,10%,After 10%,Me,Wife,Son,Total,Income,Spent,Left',
-    ...data.map(e => [e.month, salaryOf(e), netSalaryOf(e), e.tenth, afterTenthOf(e), ...PEOPLE.map(f => e[f]), sum(e), incomeOf(e), spentOf(e), leftOf(e)].join(','))].join('\n');
+    ...data.map(e => [e.month, salaryOf(e), netSalaryOf(e), round2(e.tenth || 0), afterTenthOf(e), ...PEOPLE.map(f => round2(e[f])), sum(e), incomeOf(e), spentOf(e), leftOf(e)].join(','))].join('\n');
 
   const isValidItem = s => s && typeof s.id === 'string' && ITEM_WHO.includes(s.who)
     && typeof s.note === 'string' && Number.isFinite(s.amount);

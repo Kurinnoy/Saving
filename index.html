@@ -90,7 +90,10 @@ let data = [];
 
 const persist = () => { sessionStorage.setItem(KEY, JSON.stringify(data)); GitSync.schedule(); };
 
-const money = n => `<span class="${n < 0 ? 'neg' : ''}">${fmt(n)}</span>`;
+const money = n => {
+  const value = fmt(n);
+  return `<span class="${value.startsWith('-') ? 'neg' : ''}">${value}</span>`;
+};
 
 // History columns: what is left per person (saved + income - spent), then the 10% part.
 const COLUMNS = [...PEOPLE, 'tenth', 'other'];

@@ -71,6 +71,7 @@ describe('fmt', () => {
   it('formats with two decimals', () => eq(fmt(5), '5.00'));
   it('adds thousands separator', () => eq(fmt(1234.5), '1,234.50'));
   it('rounds to two decimals', () => eq(fmt(1.236), '1.24'));
+  it('normalizes negative values that round to zero', () => eq(fmt(-0.001), '0.00'));
   it('formats zero', () => eq(fmt(0), '0.00'));
 });
 
@@ -172,6 +173,10 @@ describe('parseEntry (form values)', () => {
   it('treats empty and invalid values as 0', () =>
     eq(parseEntry('2026-01', { me: '', wife: 'abc', son: undefined, tenth: '5' }),
       { month: '2026-01', salary: 0, me: 0, wife: 0, son: 0, tenth: 0 }));
+  it('rounds entered amounts to two decimals', () => {
+    const entry = parseEntry('2026-01', { salary: '1.239', me: '2.345', wife: '3', son: '4' });
+    eq([entry.salary, entry.me, entry.wife, entry.son], [1.24, 2.35, 3, 4]);
+  });
   it('does not allow negative values', () => {
     const p = parseEntry('2026-01', { salary: '-1', me: '-5', wife: '0', son: '0', tenth: '0' });
     eq([p.me, p.salary], [0, 0]);
@@ -551,6 +556,7 @@ describe('parseSpending (Add spending form)', () => {
   });
   it('gives each spending a different id', () =>
     eq(parseSpending({ who: 'me', amount: '1' }).id === parseSpending({ who: 'me', amount: '1' }).id, false));
+  it('rounds amounts to two decimals', () => eq(parseSpending({ who: 'me', amount: '12.345' }).amount, 12.35));
   it('allows an empty note', () => eq(parseSpending({ who: 'me', amount: '1' }).note, ''));
   it('rejects zero, negative and invalid amounts', () => {
     eq(parseSpending({ who: 'me', amount: '0' }), null);
