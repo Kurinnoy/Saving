@@ -10,7 +10,7 @@ const AppSettings = (() => {
     if (!raw || raw.visibilityVersion !== 1) {
       settings = {
         ...settings,
-        defaultRows: settings.defaultRows.map(row => ({ ...row, showInSalary: false, showInHistory: false, includeInTotal: false })),
+        defaultRows: settings.defaultRows.map(row => row.id === 'other' ? row : { ...row, showInSalary: false, showInHistory: false, includeInTotal: false }),
         otherDefaults: settings.otherDefaults.map(row => ({ ...row, showInSalary: false, showInHistory: false, includeInTotal: false }))
       };
     }

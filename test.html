@@ -372,7 +372,8 @@ describe('per-person amounts in details (me 275, wife 275, son 100)', () => {
   it('backup validates custom monthly default rows', () => {
     const row = { id: 'default_net', name: 'Internet', currency: 'UAH', amount: 450 };
     eq(isValidBackup([{ ...E('2026-01'), otherDefaults: [row] }]), true);
-    eq(isValidBackup([{ ...E('2026-01'), otherDefaults: [{ ...row, currency: 'EUR' }] }]), false);
+    eq(isValidBackup([{ ...E('2026-01'), otherDefaults: [{ ...row, currency: 'EUR' }] }]), true);
+    eq(isValidBackup([{ ...E('2026-01'), otherDefaults: [{ ...row, currency: 'GBP' }] }]), false);
   });
 });
 
@@ -441,15 +442,16 @@ describe('monthly investment (default 0)', () => {
 });
 
 describe('defaults for new salary lines (Config page)', () => {
+  const allShown = { showInSalary: true, showInSalaryFooter: true, showInHistory: true, showInHistoryDetails: true, showInDropdown: true, showInBlocks: true, showInFooter: true, includeInTotal: true };
   const custom = { monthlySaving: 800, monthlyInvestment: 700, allocation: { me: 10, wife: 20, son: 30 }, monthlyPay: [1, 2, 3, 4], tenthSpendUah: 5000, otherDefaults: [] };
   it('built-in defaults', () => eq(DEFAULT_SETTINGS, {
     family: [
-      { id: 'me', name: 'Me', enabled: true, monthlyAmount: 275 },
-      { id: 'wife', name: 'Wife', enabled: true, monthlyAmount: 275 },
-      { id: 'son', name: 'Son', enabled: true, monthlyAmount: 100 }
+      { id: 'me', name: 'Me', enabled: true, monthlyAmount: 275, ...allShown },
+      { id: 'wife', name: 'Wife', enabled: true, monthlyAmount: 275, ...allShown },
+      { id: 'son', name: 'Son', enabled: true, monthlyAmount: 100, ...allShown }
     ],
     defaultRows: DEFAULT_ROWS,
-    otherDefaults: [], visibilityVersion: 1, monthlySaving: 0, monthlyInvestment: 0, allocation: { me: 275, wife: 275, son: 100 },
+    otherDefaults: [], visibilityVersion: 1, rowsVersion: 2, monthlySaving: 0, monthlyInvestment: 0, allocation: { me: 275, wife: 275, son: 100 },
     monthlyPay: [0, 0, 0, 0, 0], tenthSpendUah: 0
   }));
   it('normalizeSettings fills everything from the built-in values when empty', () => {
@@ -471,14 +473,62 @@ describe('defaults for new salary lines (Config page)', () => {
       { id: 'person_child', name: 'Child', enabled: false, monthlyAmount: '25' }
     ] });
     eq(settings.family, [
-      { id: 'person_parent', name: 'Parent', enabled: true, monthlyAmount: 75.56 },
-      { id: 'person_child', name: 'Child', enabled: false, monthlyAmount: 25 }
+      { id: 'person_parent', name: 'Parent', enabled: true, monthlyAmount: 75.56, ...allShown },
+      { id: 'person_child', name: 'Child', enabled: false, monthlyAmount: 25, ...allShown }
     ]);
     eq(settings.allocation, { person_parent: 75.56 });
   });
   it('normalizes custom monthly defaults', () => {
     const settings = normalizeSettings({ otherDefaults: [{ id: 'default_net', name: 'Internet', currency: 'UAH', amount: '450.5' }] });
-    eq(settings.otherDefaults, [{ id: 'default_net', name: 'Internet', currency: 'UAH', amount: 450.5, enabled: true, showInSalary: false, showInHistory: false, includeInTotal: false }]);
+    eq(settings.otherDefaults, [{ id: 'default_net', name: 'Internet', currency: 'UAH', amount: 450.5, enabled: true, showInSalary: false, showInSalaryFooter: true, showInHistory: false, showInHistoryDetails: false, showInDropdown: false, showInBlocks: false, showInFooter: true, includeInTotal: false }]);
+  });
+  it('keeps each person\'s and row\'s display switches', () => {
+    const settings = normalizeSettings({
+      family: [{ id: 'me', name: 'Me', showInSalary: false, showInSalaryFooter: false, showInHistory: false, showInHistoryDetails: false, showInDropdown: false, showInBlocks: false, showInFooter: false, includeInTotal: false }],
+      otherDefaults: [{ id: 'default_net', name: 'Internet', showInBlocks: true, showInFooter: false }]
+    });
+    eq(['showInSalary', 'showInSalaryFooter', 'showInHistory', 'showInHistoryDetails', 'showInDropdown', 'showInBlocks', 'showInFooter', 'includeInTotal'].map(flag => settings.family[0][flag]), [false, false, false, false, false, false, false, false]);
+    eq([settings.otherDefaults[0].showInBlocks, settings.otherDefaults[0].showInFooter], [true, false]);
+  });
+  it('shows Monthly saving and Investment in the top blocks by default and the rest not', () => {
+    const blocks = DEFAULT_ROWS.filter(row => row.showInBlocks).map(row => row.id);
+    eq(blocks, ['monthly_saving', 'monthly_investment', 'other']);
+    eq(normalizeSettings({ defaultRows: DEFAULT_ROWS.map(({ showInBlocks, showInFooter, ...row }) => row) }).defaultRows.filter(row => row.showInBlocks).map(row => row.id), blocks);
+  });
+  it('rows saved before History details existed keep their History table choice', () => {
+    const old = DEFAULT_ROWS.map(({ showInHistoryDetails, ...row }) => row.id === 'monthly_saving' ? { ...row, showInHistory: true } : row);
+    const rows = normalizeSettings({ defaultRows: old }).defaultRows;
+    eq([rows[0].showInHistoryDetails, rows[1].showInHistoryDetails], [true, false]);
+  });
+  it('offers saving, investment and 10% in the Who dropdown by default and the other rows not', () =>
+    eq(DEFAULT_ROWS.filter(row => row.showInDropdown).map(row => row.id), ['monthly_saving', 'monthly_investment', 'rate_10', 'other']));
+  it('lines can belong to a monthly row: they change its value and stay out of the people totals', () => {
+    const row = DEFAULT_ROWS.find(item => item.id === 'monthly_pay_0');
+    const entry = { ...E('2026-01', 1, 2, 3, 4), spendings: [S('a', 'monthly_pay_0', 7)], incomes: [S('b', 'monthly_pay_0', 2)] };
+    eq(parseItem({ who: 'default_net', note: '', amount: '5' }).who, 'default_net');
+    eq(parseItem({ who: 'bogus', note: '', amount: '5' }), null);
+    eq([spentOf(entry), incomeOf(entry), leftOf(entry)], [0, 0, 10]);
+    eq(Savings.defaultRowValue(entry, row), -5);
+    eq(isValidBackup([entry]), true);
+  });
+  it('Other is a monthly row worth its income lines minus its spending lines', () => {
+    const entry = { ...E('2026-01'), incomes: [S('a', 'other', 20)], spendings: [S('b', 'other', 5)] };
+    eq(Savings.defaultRowValue(entry, DEFAULT_ROWS.find(row => row.id === 'other')), 15);
+  });
+  it('settings saved before Other became a row still get it, unless it was removed afterwards', () => {
+    const without = DEFAULT_ROWS.filter(row => row.id !== 'other');
+    eq(normalizeSettings({ defaultRows: without }).defaultRows.map(row => row.id).slice(-1), ['other']);
+    eq(normalizeSettings({ defaultRows: without, rowsVersion: 2 }).defaultRows.some(row => row.id === 'other'), false);
+  });
+  it('rows saved before the Salary footer switch keep their footer choice there', () => {
+    const old = DEFAULT_ROWS.map(({ showInSalaryFooter, ...row }) => row.id === 'monthly_saving' ? { ...row, showInFooter: false } : row);
+    const rows = normalizeSettings({ defaultRows: old }).defaultRows;
+    eq([rows[0].showInSalaryFooter, rows[1].showInSalaryFooter], [false, true]);
+  });
+  it('backup accepts old rows without the new switches and rejects bad ones', () => {
+    const { showInBlocks, showInFooter, ...old } = DEFAULT_ROWS[0];
+    eq(isValidBackup([{ ...E('2026-01'), defaultRows: [old] }]), true);
+    eq(isValidBackup([{ ...E('2026-01'), defaultRows: [{ ...old, showInFooter: 'yes' }] }]), false);
   });
   it('makes deduction rates editable and can disable them', () => {
     const defaultRows = DEFAULT_ROWS.map(row => ({ ...row,
@@ -492,6 +542,65 @@ describe('defaults for new salary lines (Config page)', () => {
     disabled.defaultRows = disabled.defaultRows.map(row => row.id === 'rate_1' ? { ...row, enabled: false } : row);
     eq(onePercentOf(1000, disabled), 0);
     eq(netSalaryOf(disabled), 940);
+  });
+  it('takes a % row from the salary or from the net salary left by the rows above it', () => {
+    const rowsWith = base10 => DEFAULT_ROWS.map(row => row.id === 'rate_10' ? { ...row, base: base10 } : row);
+    const entryFor = base10 => setSalary([], '2026-05', '1000', normalizeSettings({ defaultRows: rowsWith(base10) }))[0];
+    eq([onePercentOf(1000, entryFor('net')), taxOf(1000, entryFor('net')), tenthFromSalary(1000, entryFor('net'))], [10, 50, 94]);
+    eq(tenthFromSalary(1000, entryFor('salary')), 100);
+  });
+  it('rows moved up are taken first, so later net rows see the lower remainder', () => {
+    const [r1, r5, r10] = DEFAULT_ROWS.filter(row => row.id.startsWith('rate_'));
+    const rows = [r10, r1, r5, ...DEFAULT_ROWS.filter(row => !row.id.startsWith('rate_'))];
+    const entry = setSalary([], '2026-05', '1000', normalizeSettings({ defaultRows: rows }))[0];
+    eq(tenthFromSalary(1000, entry), 100);
+  });
+  it('rejects an unknown % base in a backup and falls back to the default', () => {
+    const bad = DEFAULT_ROWS.map(row => row.id === 'rate_10' ? { ...row, base: 'gross' } : row);
+    eq(normalizeSettings({ defaultRows: bad }).defaultRows.find(row => row.id === 'rate_10').base, 'net');
+    eq(isValidBackup([{ ...E('2026-01'), defaultRows: bad }]), false);
+  });
+  it('a deduction can be a fixed amount in USD or in UAH instead of a percentage', () => {
+    const rowsWith = (id, currency, amount) => DEFAULT_ROWS.map(row => row.id === id ? { ...row, currency, amount } : row);
+    const usd = setSalary([], '2026-05', '1000', normalizeSettings({ defaultRows: rowsWith('rate_5', 'USD', 7) }))[0];
+    eq([taxOf(1000, usd), tenthFromSalary(1000, usd)], [7, 98.3]);
+    Savings.setRateLookup((month, currency) => currency === 'USD' ? 40 : undefined);
+    const uah = setSalary([], '2026-05', '1000', normalizeSettings({ defaultRows: rowsWith('rate_5', 'UAH', 400) }))[0];
+    eq(taxOf(1000, uah), 10);
+    const unknown = setSalary([], '2026-05', '1000', normalizeSettings({ defaultRows: rowsWith('rate_5', 'EUR', 400) }))[0];
+    eq(taxOf(1000, unknown), 0);
+    Savings.setRateLookup(() => undefined);
+  });
+  it('a monthly row set to % is that share of the salary', () => {
+    const rows = DEFAULT_ROWS.map(row => row.id === 'monthly_saving' ? { ...row, currency: '%', amount: 10 } : row);
+    const entry = setSalary([], '2026-05', '1000', normalizeSettings({ defaultRows: rows }))[0];
+    eq([savingOf(entry), savingLeftOf(entry)], [10, 100]);
+  });
+  it('every row except Other keeps the currency chosen for it, and a bad one is rejected', () => {
+    const rows = DEFAULT_ROWS.map(row => row.id === 'monthly_saving' ? { ...row, currency: '%' } : row.id === 'rate_1' ? { ...row, currency: 'EUR' } : row);
+    const settings = normalizeSettings({ defaultRows: rows });
+    eq(['monthly_saving', 'rate_1', 'other'].map(id => settings.defaultRows.find(row => row.id === id).currency), ['%', 'EUR', 'USD']);
+    eq(isValidBackup([{ ...E('2026-01'), defaultRows: [rows[0]] }]), true);
+    eq(isValidBackup([{ ...E('2026-01'), defaultRows: [{ ...rows[0], currency: 'GBP' }] }]), false);
+  });
+  it('a person can have their amount in %, UAH or EUR instead of USD', () => {
+    const family = [
+      { id: 'me', name: 'Me', enabled: true, monthlyAmount: 10, currency: '%' },
+      { id: 'wife', name: 'Wife', enabled: true, monthlyAmount: 400, currency: 'UAH' },
+      { id: 'son', name: 'Son', enabled: true, monthlyAmount: 100 }
+    ];
+    const entry = { ...E('2026-01'), salary: 1000, allocation: { me: 10, wife: 400, son: 100 } };
+    Savings.setRateLookup((month, currency) => currency === 'USD' ? 40 : undefined);
+    eq(['me', 'wife', 'son'].map(id => salaryIncomeOf(entry, id, family)), [100, 10, 100]);
+    eq(salaryIncomeOf(entry, undefined, family), 210);
+    Savings.setRateLookup(() => undefined);
+    eq(salaryIncomeOf(entry, 'wife', family), 0);
+    eq(salaryLeftOf(entry, 40, family), 636);
+  });
+  it('keeps the currency chosen for a person and rejects an unknown one', () => {
+    const settings = normalizeSettings({ family: [{ id: 'me', name: 'Me', currency: 'EUR' }, { id: 'wife', name: 'Wife', currency: 'GBP' }, { id: 'son', name: 'Son', currency: 'USD' }] });
+    eq(settings.family.map(person => person.currency), ['EUR', undefined, undefined]);
+    eq(isValidBackup(createBackup([E('2026-01')], settings)), true);
   });
   it('stores configured custom amounts on new salary lines only', () => {
     const settings = normalizeSettings({ family: [{ id: 'person_parent', name: 'Parent', enabled: true, monthlyAmount: 75 }] });
@@ -607,7 +716,7 @@ describe('encrypted backup includes setup', () => {
     const backup = createBackup([E('2026-01')], settings);
     eq([backup.format, backup.settings.otherDefaults, isValidBackup(backup)], [
       'family-savings-backup-v2',
-      [{ id: 'default_net', name: 'Internet', currency: 'UAH', amount: 450, enabled: true, showInSalary: false, showInHistory: false, includeInTotal: false }],
+      [{ id: 'default_net', name: 'Internet', currency: 'UAH', amount: 450, enabled: true, showInSalary: false, showInSalaryFooter: true, showInHistory: false, showInHistoryDetails: false, showInDropdown: false, showInBlocks: false, showInFooter: true, includeInTotal: false }],
       true
     ]);
   });

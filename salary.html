@@ -6,6 +6,7 @@
 <title>My salary</title>
 <style>
   * { box-sizing: border-box; }
+  html { scrollbar-gutter: stable; }
   body { font-family: system-ui, sans-serif; margin: 0; background: #f3f5f9; color: #222; }
   main { width: 90%; margin: 0 auto; padding: 20px; }
   h1 { margin-top: 0; }
@@ -35,7 +36,8 @@
   .neg { color: #d33; }
   button.details { background: #e08a00; padding: 4px 8px; font-size: 13px; }
   tr.child td { text-align: left; background: #fafafa; }
-  .calc { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px 16px; }
+  /* width 0 + min-width 100% keeps the open Details from widening the table columns above it. */
+  .calc { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px 16px; width: 0; min-width: 100%; }
   .calc div { display: flex; flex-direction: column; gap: 4px; }
   .calc span { color: #555; font-size: 13px; }
   .calc strong { font-weight: 600; }
@@ -50,7 +52,7 @@
 <body>
 <main>
   <h1>My salary</h1>
-  <nav><a href="index.html">Family Savings</a><a href="salary.html" class="current">My salary</a><a href="config.html">Config</a><span id="syncStatus" class="note"></span></nav>
+  <nav><a href="salary.html" class="current">My salary</a><a href="index.html">Family Savings</a><a href="config.html">Config</a><span id="syncStatus" class="note"></span></nav>
 
   <div class="card">
     <h2 id="formTitle">Add salary</h2>
@@ -94,7 +96,7 @@
 <script src="settings.js"></script>
 <script>
 const KEY = 'familySavings';
-const { fmt, esc, shiftMonth, copyEntry, remove, salaryOf, salaryTotal, salaryDateOf, defaultRowValue, netSalaryOf, withTenth, sortDesc, setSalary, MONTHLY_PAY_UAH, MONTHLY_PAY_LABELS, DEFAULT_ROWS, payOf, setMonthlyPay, setDefaultRows, setOtherDefaults, allocationOf, setAllocation, savingOf, setMonthlySaving, investmentOf, setMonthlyInvestment, salaryLeftOf, taxOf, onePercentOf, monthLabel, rateDate, prevDate, uahToUsd, addTenthSpending } = Savings;
+const { fmt, esc, shiftMonth, copyEntry, remove, salaryOf, salaryTotal, salaryDateOf, defaultRowValue, currencyToUsd, netSalaryOf, withTenth, sortDesc, setSalary, MONTHLY_PAY_UAH, MONTHLY_PAY_LABELS, DEFAULT_ROWS, payOf, setMonthlyPay, setDefaultRows, setOtherDefaults, allocationOf, setAllocation, savingOf, setMonthlySaving, investmentOf, setMonthlyInvestment, salaryLeftOf, taxOf, onePercentOf, monthLabel, rateDate, prevDate, uahToUsd, addTenthSpending } = Savings;
 const RATES_KEY = 'uahUsdRates';
 let family = [];
 let PEOPLE = [];
@@ -103,19 +105,25 @@ let salarySetupRows = [];
 let salarySetupOther = [];
 let salaryDefaultRows = [];
 let salaryOtherRows = [];
+let salaryPeople = [];
 function refreshFamily() {
   const settings = AppSettings.load();
   family = settings.family.filter(person => person.enabled);
+  salaryPeople = family.filter(person => person.showInSalary !== false)
+    .map(person => ({ id: person.id, name: person.name, currency: person.currency === '%' ? 'USD' : person.currency || 'USD', sourceCurrency: person.currency || 'USD', showInSalaryFooter: person.showInSalaryFooter, person: true }));
   PEOPLE = family.map(person => person.id);
   LABELS = Object.fromEntries(family.map(person => [person.id, person.name]));
   salarySetupRows = settings.defaultRows;
   salarySetupOther = settings.otherDefaults;
-  salaryDefaultRows = settings.defaultRows.filter(row => row.showInSalary);
-  salaryOtherRows = settings.otherDefaults.filter(row => row.showInSalary);
+  salaryDefaultRows = settings.defaultRows.filter(row => row.enabled !== false && row.showInSalary);
+  salaryOtherRows = settings.otherDefaults.filter(row => row.enabled !== false && row.showInSalary);
 }
 refreshFamily();
 const rates = JSON.parse(localStorage.getItem(RATES_KEY) || '{}');
 const pending = new Set();
+const rateKey = (month, currency = 'USD') => currency === 'USD' ? month : `${month}|${currency}`;
+const rateOf = (month, currency = 'USD') => rates[rateKey(month, currency)];
+Savings.setRateLookup(rateOf);
 const $ = id => document.getElementById(id);
 const open = new Set();
 let data = [];
@@ -139,45 +147,60 @@ function resetForm() {
 
 const salaryDateLabel = e => {
   const [year, month, day] = salaryDateOf(e).split('-');
-  return `${monthLabel(`${year}-${month}`).split(' ')[0]} ${Number(day)} ${year.slice(-2)}`;
+    return `${monthLabel(`${year}-${month}`).split(' ')[0]} ${Number(day)} ${year.slice(-2)}`;
 };
 
 function childHtml(e) {
-  const rate = rates[e.month];
-  if (rate === undefined) loadRate(e.month);
-  const usd = uah => rate ? '$' + fmt(uahToUsd(uah, rate)) : rate === null ? 'rate unavailable' : 'loading...';
+  const rate = rateOf(e.month);
   const defaultRows = e.defaultRows || [];
-  const isEnabled = id => !Array.isArray(e.defaultRows) || defaultRows.some(row => row.id === id && row.enabled && row.showInSalary);
-  const pay = payOf(e).map((uah, i) => {
+  const isEnabled = id => !Array.isArray(e.defaultRows) || defaultRows.some(row => row.id === id && row.enabled);
+  const currencies = new Set([
+    ...(e.defaultRows || DEFAULT_ROWS).filter(row => row.enabled).map(row => row.currency),
+    ...family.map(person => person.currency || 'USD'),
+    ...(e.otherDefaults || []).filter(row => row.enabled !== false).map(row => row.currency)
+  ].filter(currency => !['USD', 'UAH', '%'].includes(currency)));
+  if (rate === undefined) loadRate(e.month, 'USD', salaryDateOf(e));
+  currencies.forEach(currency => { if (rateOf(e.month, currency) === undefined) loadRate(e.month, currency, salaryDateOf(e)); });
+  const foreignRates = Object.fromEntries([...currencies].map(currency => [currency, rateOf(e.month, currency)]));
+  const usd = (amount, currency) => {
+    const converted = rate ? currencyToUsd(amount, currency, rate, foreignRates, salaryOf(e)) : null;
+    return converted === null ? rate === null ? 'rate unavailable' : 'loading...' : '$' + fmt(converted);
+  };
+  const payFields = payOf(e).map((uah, i) => {
     const id = `monthly_pay_${i}`;
     const row = defaultRows.find(item => item.id === id);
     if (!isEnabled(id)) return '';
-    return `<div><span>${esc(row ? row.name : MONTHLY_PAY_LABELS[i])} <input name="pay" type="number" min="0" step="0.01" value="${uah}"> UAH</span><strong>${usd(uah)}</strong></div>`;
-  }).join('');
+    const currency = row ? row.currency : DEFAULT_ROWS.find(item => item.id === id).currency;
+    return `<div><span>${esc(row ? row.name : MONTHLY_PAY_LABELS[i])} <input name="pay" type="number" min="0" step="0.01" value="${uah}"> ${currency}</span><strong>${usd(uah, currency)}</strong></div>`;
+  });
   const alloc = allocationOf(e, family);
-  const forWho = family.map(person => `<div><span>For ${esc(person.name)} <input name="${person.id}" type="number" min="0" step="0.01" value="${alloc[person.id]}"></span></div>`).join('');
-  const otherDefaults = (e.otherDefaults || []).filter(item => item.enabled !== false && item.showInSalary !== false).map(item => `<div><span>${esc(item.name)} <input name="otherDefault" data-id="${esc(item.id)}" type="number" min="0" step="0.01" value="${item.amount}"> ${item.currency}</span><strong>${item.currency === 'UAH' ? usd(item.amount) : fmt(item.amount)}</strong></div>`).join('');
+  const forWho = family.map(person => `<div><span>For ${esc(person.name)} <input name="${person.id}" type="number" min="0" step="0.01" value="${alloc[person.id]}">${person.currency && person.currency !== 'USD' ? ` ${person.currency}` : ''}</span>${person.currency && person.currency !== 'USD' ? `<strong>${usd(alloc[person.id], person.currency)}</strong>` : ''}</div>`).join('');
+  const otherDefaults = (e.otherDefaults || []).filter(item => item.enabled !== false).map(item => `<div><span>${esc(item.name)} <input name="otherDefault" data-id="${esc(item.id)}" type="number" min="0" step="0.01" value="${item.amount}"> ${item.currency}</span><strong>${usd(item.amount, item.currency)}</strong></div>`).join('');
   const deductions = Array.isArray(e.defaultRows)
-    ? defaultRows.filter(row => row.id.startsWith('rate_') && row.enabled && row.showInSalary)
+    ? defaultRows.filter(row => row.id.startsWith('rate_') && row.enabled)
     : [{ id: 'rate_1', name: '1% deduction' }, { id: 'rate_5', name: '5% deduction' }, { id: 'rate_10', name: '10% deduction' }];
   const deductionAmounts = { rate_1: onePercentOf(salaryOf(e), e), rate_5: taxOf(salaryOf(e), e), rate_10: fmt(e.tenth) };
   const deductionHtml = deductions.map(row => `<div><span>${esc(row.name)}</span><strong>${deductionAmounts[row.id] ?? '0.00'}</strong></div>`).join('');
-  const savingField = isEnabled('monthly_saving') ? `<div><span>Monthly saving $ <input name="saving" type="number" min="0" step="0.01" value="${savingOf(e)}"></span></div>` : '';
-  const investmentField = isEnabled('monthly_investment') ? `<div><span>Monthly investment $ <input name="investment" type="number" min="0" step="0.01" value="${investmentOf(e)}"></span></div>` : '';
-  return `<tr class="child"><td colspan="${3 + salaryDefaultRows.length + salaryOtherRows.length}"><div class="calc">
+  const savingCurrency = defaultRows.find(row => row.id === 'monthly_saving')?.currency || 'USD';
+  const investmentCurrency = defaultRows.find(row => row.id === 'monthly_investment')?.currency || 'USD';
+  const savingField = isEnabled('monthly_saving') ? `<div><span>Monthly saving ${savingCurrency} <input name="saving" type="number" min="0" step="0.01" value="${savingOf(e)}"></span></div>` : '';
+  const investmentField = isEnabled('monthly_investment') ? `<div><span>Monthly investment ${investmentCurrency} <input name="investment" type="number" min="0" step="0.01" value="${investmentOf(e)}"></span></div>` : '';
+  const builtInFields = { monthly_saving: savingField, monthly_investment: investmentField, ...Object.fromEntries(payFields.map((html, i) => [`monthly_pay_${i}`, html])) };
+  const builtIns = (Array.isArray(e.defaultRows) ? defaultRows.map(row => row.id) : Object.keys(builtInFields)).filter(id => id in builtInFields).map(id => builtInFields[id]).join('');
+  return `<tr class="child"><td colspan="${4 + salaryPeople.length + salaryDefaultRows.length + salaryOtherRows.length}"><div class="calc">
     ${deductionHtml}
     <div class="rate"><span>USD rate</span><strong>${rate ? `1 USD = ${rate} UAH` : rate === null ? 'unavailable' : 'loading...'}<button type="button" class="details" data-rate="${e.month}" ${pending.has(e.month) ? 'disabled' : ''}>${pending.has(e.month) ? 'Updating...' : 'Update rate'}</button></strong></div>
-    <form class="payForm" data-month="${e.month}">${savingField}${investmentField}${forWho}${pay}${otherDefaults}<div class="save"><button type="submit">Save</button></div></form>
+    <form class="payForm" data-month="${e.month}">${builtIns}${forWho}${otherDefaults}<div class="save"><button type="submit">Save</button></div></form>
   </div></td></tr>`;
 }
 
 // NBU official rate for the month's date; looks back a few days when that date has none.
-async function fetchRate(month, salaryDate) {
+async function fetchRate(month, salaryDate, currency = 'USD') {
   let date = salaryDate && /^\d{4}-\d{2}-\d{2}$/.test(salaryDate) && salaryDate.startsWith(month)
     ? salaryDate.replace(/-/g, '')
     : rateDate(month);
   for (let i = 0; i < 5; i++) {
-    const res = await fetch(`https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?valcode=USD&date=${date}&json`);
+    const res = await fetch(`https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?valcode=${encodeURIComponent(currency)}&date=${date}&json`);
     if (!res.ok) throw new Error(res.status);
     const [row] = await res.json();
     if (row && row.rate > 0) return row.rate;
@@ -186,40 +209,70 @@ async function fetchRate(month, salaryDate) {
   throw new Error('no rate');
 }
 
-async function loadRate(month) {
-  if (pending.has(month)) return;
-  pending.add(month);
+async function loadRate(month, currency = 'USD', salaryDate) {
+  const key = rateKey(month, currency);
+  if (pending.has(key)) return;
+  pending.add(key);
   try {
     const entry = data.find(item => item.month === month);
-    rates[month] = await fetchRate(month, entry && entry.salaryDate);
+    rates[key] = await fetchRate(month, salaryDate || entry && entry.salaryDate, currency);
     // Only closed months have a final rate worth keeping.
     const current = new Date().toISOString().slice(0, 7);
-    const closed = Object.entries(rates).filter(([m, r]) => r && m < current);
+    const closed = Object.entries(rates).filter(([rateId, value]) => value && rateId.slice(0, 7) < current);
     localStorage.setItem(RATES_KEY, JSON.stringify(Object.fromEntries(closed)));
   } catch {
-    rates[month] = null;
+    rates[key] = null;
   }
-  pending.delete(month);
+  pending.delete(key);
   render();
 }
 
-function leftHtml(e) {
-  const rate = rates[e.month];
-  if (rate === undefined) loadRate(e.month);
-  if (!rate) return rate === null ? 'rate unavailable' : 'loading...';
-  const left = salaryLeftOf(e, rate, family);
-  return `<span class="${left < 0 ? 'neg' : ''}">${fmt(left)}</span>`;
+// Net salary left of a month: a number, or 'loading' / 'unavailable' while its exchange rates are missing.
+function leftState(e) {
+  const rate = rateOf(e.month);
+  const rows = e.defaultRows || DEFAULT_ROWS;
+  const otherRows = e.otherDefaults || [];
+  const currencies = new Set([
+    ...rows.filter(row => row.enabled).map(row => row.currency),
+    ...family.map(person => person.currency || 'USD'),
+    ...otherRows.filter(row => row.enabled !== false).map(row => row.currency)
+  ].filter(currency => !['USD', 'UAH', '%'].includes(currency)));
+  if (rate === undefined) loadRate(e.month, 'USD', salaryDateOf(e));
+  currencies.forEach(currency => { if (rateOf(e.month, currency) === undefined) loadRate(e.month, currency, salaryDateOf(e)); });
+  if (rate === undefined || [...currencies].some(currency => rateOf(e.month, currency) === undefined)) return 'loading';
+  if (rate === null || [...currencies].some(currency => rateOf(e.month, currency) === null)) return 'unavailable';
+  const foreignRates = Object.fromEntries([...currencies].map(currency => [currency, rateOf(e.month, currency)]));
+  const left = salaryLeftOf(e, rate, family, foreignRates);
+  return left === null ? 'unavailable' : left;
+}
+
+const leftText = left => left === 'loading' ? 'loading...' : left === 'unavailable' ? 'rate unavailable'
+  : `<span class="${left < 0 ? 'neg' : ''}">${fmt(left)}</span>`;
+
+const leftHtml = e => leftText(leftState(e));
+
+function leftTotalHtml(rows) {
+  const states = rows.map(leftState);
+  if (states.includes('loading')) return leftText('loading');
+  if (states.includes('unavailable')) return leftText('unavailable');
+  return leftText(states.reduce((sum, left) => sum + left, 0));
 }
 
 function applySalarySetup(entry) {
+  // A row marked "New salaries only" keeps this month's own Include, amount and currency; a month that never had it does not get it.
   const defaultRows = salarySetupRows.map(row => {
     const saved = (entry.defaultRows || []).find(item => item.id === row.id);
     const builtIn = DEFAULT_ROWS.find(item => item.id === row.id);
-    return { ...row, amount: saved ? saved.amount : builtIn ? builtIn.amount : row.amount };
+    const amount = saved ? saved.amount : builtIn ? builtIn.amount : row.amount;
+    if (!row.newSalariesOnly || !Array.isArray(entry.defaultRows)) return { ...row, amount };
+    return saved
+      ? { ...row, amount, enabled: saved.enabled, currency: saved.currency || row.currency, ...(saved.base ? { base: saved.base } : {}) }
+      : { ...row, enabled: false };
   });
   const otherDefaults = salarySetupOther.flatMap(row => {
     const saved = (entry.otherDefaults || []).find(item => item.id === row.id);
-    return saved ? [{ ...row, amount: saved.amount }] : [];
+    if (!saved) return [];
+    return [row.newSalariesOnly ? { ...row, amount: saved.amount, enabled: saved.enabled, currency: saved.currency || row.currency } : { ...row, amount: saved.amount }];
   });
   return { ...entry, defaultRows, otherDefaults };
 }
@@ -227,7 +280,8 @@ function applySalarySetup(entry) {
 function render() {
   data = withTenth(sortDesc(data.map(applySalarySetup)));
   const rows = data.filter(e => salaryOf(e) > 0);
-  const columns = [...salaryDefaultRows, ...salaryOtherRows];
+  const columns = [...salaryPeople, ...salaryDefaultRows, ...salaryOtherRows];
+  const columnValue = (e, col) => col.person ? (col.sourceCurrency === '%' ? Savings.salaryIncomeOf(e, col.id, family) : allocationOf(e, family)[col.id] || 0) : defaultRowValue(e, col);
   const colCount = columns.length + 4;
   $('salaryHead').innerHTML = '<th>Date</th><th>Salary</th><th>Net salary</th>' +
     columns.map(row => `<th>${esc(row.name)} (${esc(row.currency === '%' ? 'USD' : row.currency)})</th>`).join('') + '<th></th>';
@@ -237,7 +291,7 @@ function render() {
       <td>${esc(salaryDateLabel(e))}</td>
       <td>${fmt(salaryOf(e))}</td>
       <td>${leftHtml(e)}</td>
-      ${columns.map(row => `<td>${fmt(defaultRowValue(e, row))}</td>`).join('')}
+      ${columns.map(row => `<td>${fmt(columnValue(e, row))}</td>`).join('')}
       <td>
         <button class="details" data-details="${e.month}">Details</button>
         <button class="copy" data-copy="${e.month}">Copy</button>
@@ -246,19 +300,25 @@ function render() {
       </td>
     </tr>${open.has(e.month) ? childHtml(e) : ''}`).join('') || `<tr><td colspan="${colCount}">No salary yet</td></tr>`;
 
-  $('foot').innerHTML = rows.length ? `<td>Total</td><td>${fmt(salaryTotal(rows))}</td><td></td>${columns.map(row => `<td>${fmt(rows.reduce((sum, e) => sum + defaultRowValue(e, row), 0))}</td>`).join('')}<td></td>` : '';
+  $('foot').innerHTML = rows.length ? `<td>Total</td><td>${fmt(salaryTotal(rows))}</td><td>${leftTotalHtml(rows)}</td>${columns.map(row => `<td>${row.showInSalaryFooter !== false ? fmt(rows.reduce((sum, e) => sum + columnValue(e, row), 0)) : ''}</td>`).join('')}<td></td>` : '';
 }
 
 // A new salary line spends the configured UAH amount from the 10% money, converted at that month's rate.
 async function addTenthForNewLine(month) {
-  const amount = AppSettings.load().tenthSpendUah;
+  const settings = AppSettings.load();
+  const tenthRow = settings.defaultRows.find(row => row.id === 'tenth_spend');
+  const amount = settings.tenthSpendUah;
+  const currency = tenthRow ? tenthRow.currency : 'UAH';
   if (!(amount > 0)) return;
   try {
-    if (!rates[month]) {
-      const entry = data.find(item => item.month === month);
-      rates[month] = await fetchRate(month, entry && entry.salaryDate);
-    }
-    data = addTenthSpending(data, month, rates[month], amount);
+    const entry = data.find(item => item.month === month);
+    if (rateOf(month) === undefined) await loadRate(month, 'USD', entry && salaryDateOf(entry));
+    if (currency !== 'USD' && currency !== 'UAH' && currency !== '%' && rateOf(month, currency) === undefined)
+      await loadRate(month, currency, entry && salaryDateOf(entry));
+    const foreignRates = currency !== 'USD' && currency !== 'UAH' && currency !== '%'
+      ? { [currency]: rateOf(month, currency) }
+      : {};
+    data = addTenthSpending(data, month, rateOf(month), amount, currency, foreignRates);
     persist();
     render();
   } catch {
@@ -343,7 +403,7 @@ $('rows').addEventListener('submit', ev => {
   const f = ev.target;
   const amounts = [...f.querySelectorAll('input[name=pay]')].map(i => i.value);
   const otherAmounts = Object.fromEntries([...f.querySelectorAll('input[name=otherDefault]')].map(i => [i.dataset.id, i.value]));
-  const alloc = Object.fromEntries(PEOPLE.map(p => [p, f.elements.namedItem(p).value]));
+  const alloc = Object.fromEntries(PEOPLE.filter(p => f.elements.namedItem(p)).map(p => [p, f.elements.namedItem(p).value]));
   data = setAllocation(data, f.dataset.month, alloc);
   if (amounts.length) data = setMonthlyPay(data, f.dataset.month, amounts);
   data = setDefaultRows(data, f.dataset.month, otherAmounts);

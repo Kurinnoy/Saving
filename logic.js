@@ -20,20 +20,40 @@ const Savings = (() => {
   const OTHER = 'other';
   const EXTRA_WHO = [INVESTMENT, SAVING, OTHER];
   const ITEM_WHO = [...FIELDS, ...EXTRA_WHO];
+  // Lines can also belong to a monthly row of Config (other than saving, investment and 10%, which have their own keys).
+  const ROW_WHO = /^(default_[\w-]+|monthly_pay_\d+|tenth_spend|rate_[15])$/;
   const familyIds = family => family.map(member => typeof member === 'string' ? member : member.id);
   const itemsOf = (e, kind) => e[kind] || [];
   const spendingsOf = e => itemsOf(e, 'spendings');
   const incomesOf = e => itemsOf(e, 'incomes');
 
   const sumItems = (e, kind, who) => round2(itemsOf(e, kind)
-    .filter(s => who ? s.who === who : !EXTRA_WHO.includes(s.who))
+    .filter(s => who ? s.who === who : !EXTRA_WHO.includes(s.who) && !ROW_WHO.test(s.who))
     .reduce((s, x) => s + x.amount, 0));
   const spentOf = (e, who) => sumItems(e, 'spendings', who);
   // Income = typed income lines + the per-person amounts of the month's My salary details.
+  // A person's monthly amount is in their own currency: USD (default), UAH, EUR or % of the salary.
+  const memberId = member => typeof member === 'string' ? member : member.id;
+  const memberCurrency = member => (member && typeof member === 'object' && member.currency) || 'USD';
+  const memberUsd = (e, member, amount) => {
+    const currency = memberCurrency(member);
+    return currency === 'USD' ? round2(amount) : currency === '%' ? pctOrRaw(e, '%', amount) : fixedDeductionUsd(e, currency, amount);
+  };
+  // A person marked "New salaries only" keeps the Include and currency the month was created with; a month without that person does not get it.
+  const entryMember = (e, member) => {
+    if (!member || typeof member !== 'object' || !member.newSalariesOnly || !Array.isArray(e && e.familySetup)) return member;
+    const saved = e.familySetup.find(item => item.id === member.id);
+    return saved ? { ...member, enabled: saved.enabled !== false, currency: saved.currency || member.currency } : { ...member, enabled: false };
+  };
+  const entryFamily = (e, family) => family.map(member => entryMember(e, member));
   const salaryIncomeOf = (e, who, family = DEFAULT_FAMILY) => {
     if (!(salaryOf(e) > 0 || e.allocation)) return 0;
     const alloc = allocationOf(e, family);
-    return round2(who ? alloc[who] || 0 : familyIds(family).reduce((s, id) => s + (alloc[id] || 0), 0));
+    const usdOf = id => {
+      const member = entryMember(e, family.find(item => memberId(item) === id));
+      return member && member.enabled === false ? 0 : memberUsd(e, member, alloc[id] || 0);
+    };
+    return round2(who ? usdOf(who) : familyIds(family).reduce((s, id) => s + usdOf(id), 0));
   };
   const incomeOf = (e, who, family = DEFAULT_FAMILY) => round2(sumItems(e, 'incomes', who) + salaryIncomeOf(e, who, family));
 
@@ -114,6 +134,7 @@ const Savings = (() => {
     KINDS.forEach(k => { if (old[k]) merged[k] = old[k]; });
     if (old.monthlyPay) merged.monthlyPay = old.monthlyPay;
     if (old.allocation) merged.allocation = old.allocation;
+    if (old.familySetup) merged.familySetup = old.familySetup;
     if (old.monthlySaving !== undefined) merged.monthlySaving = old.monthlySaving;
     if (old.monthlyInvestment !== undefined) merged.monthlyInvestment = old.monthlyInvestment;
     return [...data.filter(e => e.month !== entry.month), merged];
@@ -123,10 +144,12 @@ const Savings = (() => {
 
   // 10% is calculated from the net salary when a month is saved; the other amounts are typed in.
   const PEOPLE = FIELDS.filter(f => f !== 'tenth');
+  const FAMILY_FLAGS = ['showInSalary', 'showInSalaryFooter', 'showInHistory', 'showInHistoryDetails', 'showInDropdown', 'showInBlocks', 'showInFooter', 'includeInTotal'];
+  const allFlags = value => Object.fromEntries(FAMILY_FLAGS.map(flag => [flag, value]));
   const DEFAULT_FAMILY = [
-    { id: 'me', name: 'Me', enabled: true, monthlyAmount: 275 },
-    { id: 'wife', name: 'Wife', enabled: true, monthlyAmount: 275 },
-    { id: 'son', name: 'Son', enabled: true, monthlyAmount: 100 }
+    { id: 'me', name: 'Me', enabled: true, monthlyAmount: 275, ...allFlags(true) },
+    { id: 'wife', name: 'Wife', enabled: true, monthlyAmount: 275, ...allFlags(true) },
+    { id: 'son', name: 'Son', enabled: true, monthlyAmount: 100, ...allFlags(true) }
   ];
 
   const parseEntry = (month, values) => {
@@ -139,27 +162,58 @@ const Savings = (() => {
   // Salary is shown for reference only and is not part of the saved total.
   const salaryOf = e => round2(e.salary || 0);
   const salaryTotal = data => round2(data.reduce((s, e) => s + salaryOf(e), 0));
-  const defaultRowValue = (e, row) => {
-    if (row.id === 'monthly_saving') return savingOf(e);
-    if (row.id === 'monthly_investment') return investmentOf(e);
-    if (row.id.startsWith('monthly_pay_')) return payOf(e)[Number(row.id.slice(-1))] || 0;
-    if (row.id === 'tenth_spend') return (e.defaultRows || []).find(item => item.id === row.id)?.amount || 0;
+  // A row set to % is that share of the month's salary, shown in USD.
+  const pctOrRaw = (e, currency, amount) => currency === '%' ? round2(salaryOf(e) * amount / 100) : amount;
+  const rowBaseValue = (e, row) => {
+    if (row.id === OTHER) return round2(sumItems(e, 'incomes', OTHER) - sumItems(e, 'spendings', OTHER));
+    if (row.id === 'monthly_saving') return savingLeftOf(e);
+    if (row.id === 'monthly_investment') return investmentLeftOf(e);
+    if (row.id.startsWith('monthly_pay_')) return pctOrRaw(e, defaultRowCurrency(e, row.id), payOf(e)[Number(row.id.slice(-1))] || 0);
+    if (row.id === 'tenth_spend') return pctOrRaw(e, defaultRowCurrency(e, row.id), (e.defaultRows || []).find(item => item.id === row.id)?.amount || 0);
     if (row.id === 'rate_1') return onePercentOf(salaryOf(e), e);
     if (row.id === 'rate_5') return taxOf(salaryOf(e), e);
     if (row.id === 'rate_10') return e.tenth || 0;
-    return (e.otherDefaults || []).find(item => item.id === row.id)?.amount || 0;
+    const item = (e.otherDefaults || []).find(entry => entry.id === row.id);
+    return item ? pctOrRaw(e, item.currency, item.amount) : 0;
   };
+  // Like Monthly saving: the row's amount plus its income lines minus its spending lines.
+  const defaultRowValue = (e, row) => rowBaseValue(e, row)
+    + (ROW_WHO.test(row.id) ? sumItems(e, 'incomes', row.id) - sumItems(e, 'spendings', row.id) : 0);
 
   const rowAmount = (e, id, fallback) => {
     if (!e || !Array.isArray(e.defaultRows)) return fallback;
     const row = e.defaultRows.find(item => item.id === id);
-    return row && row.enabled && row.showInSalary ? round2(row.amount) : 0;
+    return row && row.enabled ? round2(row.amount) : 0;
   };
-  const rowEnabled = (e, id) => !Array.isArray(e && e.defaultRows) || !!e.defaultRows.find(item => item.id === id && item.enabled && item.showInSalary);
-  const taxOf = (salary, e) => round2(salary * rowAmount(e, 'rate_5', 5) / 100);
-  const onePercentOf = (salary, e) => round2(salary * rowAmount(e, 'rate_1', 1) / 100);
+  const rowEnabled = (e, id) => !Array.isArray(e && e.defaultRows) || !!e.defaultRows.find(item => item.id === id && item.enabled);
+  // A % row takes its amount from the whole salary or from what is left after the % rows above it.
+  const RATE_BASES = ['salary', 'net'];
+  // Pages hand in the exchange rates they know, so a deduction set to UAH or EUR can be converted.
+  let rateLookup = () => undefined;
+  const setRateLookup = lookup => { rateLookup = lookup; };
+  const fixedDeductionUsd = (e, currency, amount) => {
+    const usd = currencyToUsd(amount, currency, rateLookup(e && e.month, 'USD'), { [currency]: rateLookup(e && e.month, currency) });
+    return Number.isFinite(usd) ? usd : 0;
+  };
+  const ratesOf = (salary, e) => {
+    const rows = e && Array.isArray(e.defaultRows) ? e.defaultRows : DEFAULT_ROWS;
+    let remaining = salary;
+    const amounts = {};
+    rows.filter(row => row.id.startsWith('rate_')).forEach(row => {
+      const fallback = DEFAULT_ROWS.find(item => item.id === row.id);
+      const percent = rowAmount(e, row.id, fallback ? fallback.amount : 0);
+      const base = RATE_BASES.includes(row.base) ? row.base : fallback && fallback.base;
+      amounts[row.id] = (row.currency || '%') === '%'
+        ? round2((base === 'net' ? remaining : salary) * percent / 100)
+        : fixedDeductionUsd(e, row.currency, percent);
+      remaining = round2(remaining - amounts[row.id]);
+    });
+    return amounts;
+  };
+  const taxOf = (salary, e) => ratesOf(salary, e).rate_5 || 0;
+  const onePercentOf = (salary, e) => ratesOf(salary, e).rate_1 || 0;
   const netFromSalary = (salary, e) => round2(salary - taxOf(salary, e) - onePercentOf(salary, e));
-  const tenthFromSalary = (salary, e) => round2(netFromSalary(salary, e) * rowAmount(e, 'rate_10', 10) / 100);
+  const tenthFromSalary = (salary, e) => ratesOf(salary, e).rate_10 || 0;
 
   // 10% is never typed in: every month gets it recalculated from its salary.
   const withTenth = data => data.map(e => ({ ...e, tenth: tenthFromSalary(salaryOf(e), e) }));
@@ -253,7 +307,7 @@ const Savings = (() => {
     const isNewLine = !existing || !(salaryOf(existing) > 0);
     const legacyRows = DEFAULT_ROWS.map(row => ({ ...row, showInSalary: true }));
     const defaults = settings && isNewLine && value > 0
-      ? { monthlySaving: settings.monthlySaving, monthlyInvestment: settings.monthlyInvestment, allocation: { ...settings.allocation }, monthlyPay: [...settings.monthlyPay], defaultRows: (settings.defaultRows || legacyRows).map(row => ({ ...row })), otherDefaults: (settings.otherDefaults || []).map(item => ({ ...item })) }
+      ? { monthlySaving: settings.monthlySaving, monthlyInvestment: settings.monthlyInvestment, allocation: { ...settings.allocation }, familySetup: (settings.family || []).map(person => ({ id: person.id, enabled: person.enabled !== false, currency: person.currency || 'USD' })), monthlyPay: [...settings.monthlyPay], defaultRows: (settings.defaultRows || legacyRows).map(row => ({ ...row })), otherDefaults: (settings.otherDefaults || []).map(item => ({ ...item })) }
       : {};
     if (!existing) {
       const entry = { month, salary: value, me: 0, wife: 0, son: 0, ...defaults, ...(salaryDate ? { salaryDate } : {}) };
@@ -284,14 +338,24 @@ const Savings = (() => {
     return `${t.getUTCFullYear()}${pad2(t.getUTCMonth() + 1)}${pad2(t.getUTCDate())}`;
   };
   const uahToUsd = (uah, rate) => round2(uah / rate);
+  const CURRENCIES = ['USD', 'UAH', 'EUR', '%'];
+  const currencyToUsd = (amount, currency, usdRate, foreignRates = {}, percentBase = 0) => {
+    if (currency === 'USD') return round2(amount);
+    if (currency === 'UAH') return uahToUsd(amount, usdRate);
+    if (currency === '%') return round2(percentBase * amount / 100);
+    const rate = foreignRates[currency];
+    return rate > 0 && usdRate > 0 ? round2(amount * rate / usdRate) : null;
+  };
 
   // A new salary line spends this many UAH from the 10% money, once per month.
   const TENTH_SPEND_UAH = 0;
   const TENTH_SPEND_ID = 'tenth-uah';
-  const addTenthSpending = (data, month, rate, uah = TENTH_SPEND_UAH) => {
+  const addTenthSpending = (data, month, rate, amount = TENTH_SPEND_UAH, currency = 'UAH', foreignRates = {}) => {
     const e = data.find(x => x.month === month);
-    if (!e || !(rate > 0) || !(uah > 0) || spendingsOf(e).some(s => s.id === TENTH_SPEND_ID)) return data;
-    const item = { id: TENTH_SPEND_ID, who: 'tenth', note: `${uah.toLocaleString('en-US')} UAH`, amount: uahToUsd(uah, rate) };
+    if (!e || !(rate > 0) || !(amount > 0) || spendingsOf(e).some(s => s.id === TENTH_SPEND_ID)) return data;
+    const usdAmount = currencyToUsd(amount, currency, rate, foreignRates, salaryOf(e));
+    if (usdAmount === null) return data;
+    const item = { id: TENTH_SPEND_ID, who: 'tenth', note: `${amount.toLocaleString('en-US')} ${currency}`, amount: usdAmount };
     return addItem(data, month, 'spendings', item);
   };
   // Months saved with fewer amounts than today's list keep their own and take the default for the new ones.
@@ -306,7 +370,7 @@ const Savings = (() => {
   const MONTHLY_SAVING_DEFAULT = 0;
   const savingOf = e => rowEnabled(e, 'monthly_saving') ? round2(e.monthlySaving ?? rowAmount(e, 'monthly_saving', MONTHLY_SAVING_DEFAULT)) : 0;
   // Monthly saving of a month with a salary, plus its saving income, minus its saving spending.
-  const savingLeftOf = e => round2((salaryOf(e) > 0 ? savingOf(e) : 0) + sumItems(e, 'incomes', SAVING) - sumItems(e, 'spendings', SAVING));
+  const savingLeftOf = e => round2((salaryOf(e) > 0 ? pctOrRaw(e, defaultRowCurrency(e, 'monthly_saving'), savingOf(e)) : 0) + sumItems(e, 'incomes', SAVING) - sumItems(e, 'spendings', SAVING));
   const setMonthlySaving = (data, month, amount) =>
     data.map(e => e.month === month ? { ...e, monthlySaving: nonNegativeAmount(amount) } : e);
 
@@ -316,7 +380,7 @@ const Savings = (() => {
   const setMonthlyInvestment = (data, month, amount) =>
     data.map(e => e.month === month ? { ...e, monthlyInvestment: nonNegativeAmount(amount) } : e);
   // Monthly investment of a month with a salary, plus its investment income, minus its investment spending.
-  const investmentLeftOf = e => round2((salaryOf(e) > 0 ? investmentOf(e) : 0) + sumItems(e, 'incomes', INVESTMENT) - sumItems(e, 'spendings', INVESTMENT));
+  const investmentLeftOf = e => round2((salaryOf(e) > 0 ? pctOrRaw(e, defaultRowCurrency(e, 'monthly_investment'), investmentOf(e)) : 0) + sumItems(e, 'incomes', INVESTMENT) - sumItems(e, 'spendings', INVESTMENT));
 
   // Amounts set aside for each person in a month; every month starts from these defaults.
   const ALLOCATION_DEFAULT = { me: 275, wife: 275, son: 100 };
@@ -347,18 +411,24 @@ const Savings = (() => {
         : { ...item, amount: nonNegativeAmount(amounts[item.id]) })
     } : e);
 
+  // Per-row switches: which page parts show a row (columns, Details, top blocks, footer) and whether History Total counts it.
+  const rowFlags = (blocks, dropdown) => ({ showInSalary: false, showInSalaryFooter: true, showInHistory: false, showInHistoryDetails: false, showInDropdown: dropdown, showInBlocks: blocks, showInFooter: true, includeInTotal: false });
   const DEFAULT_ROWS = [
-    { id: 'monthly_saving', name: 'Monthly saving', currency: 'USD', amount: MONTHLY_SAVING_DEFAULT, enabled: true, showInSalary: false, showInHistory: false, includeInTotal: false },
-    { id: 'monthly_investment', name: 'Monthly investment', currency: 'USD', amount: MONTHLY_INVESTMENT_DEFAULT, enabled: true, showInSalary: false, showInHistory: false, includeInTotal: false },
-    ...MONTHLY_PAY_LABELS.map((name, i) => ({ id: `monthly_pay_${i}`, name, currency: 'UAH', amount: MONTHLY_PAY_UAH[i], enabled: true, showInSalary: false, showInHistory: false, includeInTotal: false })),
-    { id: 'tenth_spend', name: 'Spending from 10%', currency: 'UAH', amount: TENTH_SPEND_UAH, enabled: true, showInSalary: false, showInHistory: false, includeInTotal: false },
-    { id: 'rate_1', name: '1% deduction', currency: '%', amount: 1, enabled: true, showInSalary: false, showInHistory: false, includeInTotal: false },
-    { id: 'rate_5', name: '5% deduction', currency: '%', amount: 5, enabled: true, showInSalary: false, showInHistory: false, includeInTotal: false },
-    { id: 'rate_10', name: '10% deduction', currency: '%', amount: 10, enabled: true, showInSalary: false, showInHistory: false, includeInTotal: false }
+    { id: 'monthly_saving', name: 'Monthly saving', currency: 'USD', amount: MONTHLY_SAVING_DEFAULT, enabled: true, ...rowFlags(true, true) },
+    { id: 'monthly_investment', name: 'Monthly investment', currency: 'USD', amount: MONTHLY_INVESTMENT_DEFAULT, enabled: true, ...rowFlags(true, true) },
+    ...MONTHLY_PAY_LABELS.map((name, i) => ({ id: `monthly_pay_${i}`, name, currency: 'UAH', amount: MONTHLY_PAY_UAH[i], enabled: true, ...rowFlags(false, false) })),
+    { id: 'tenth_spend', name: 'Spending from 10%', currency: 'UAH', amount: TENTH_SPEND_UAH, enabled: true, ...rowFlags(false, false) },
+    { id: 'rate_1', name: '1% deduction', currency: '%', base: 'salary', amount: 1, enabled: true, ...rowFlags(false, false) },
+    { id: 'rate_5', name: '5% deduction', currency: '%', base: 'salary', amount: 5, enabled: true, ...rowFlags(false, false) },
+    { id: 'rate_10', name: '10% deduction', currency: '%', base: 'net', amount: 10, enabled: true, ...rowFlags(false, true) },
+    // Income and spending lines for "Other"; kept as it was before it became a row: shown, counted and in the dropdown.
+    { id: 'other', name: 'Other', currency: 'USD', amount: 0, enabled: true, ...rowFlags(true, true), showInHistory: true, showInHistoryDetails: true, includeInTotal: true }
   ];
+  const defaultRowCurrency = (e, id) => e.defaultRows?.find(row => row.id === id)?.currency
+    || DEFAULT_ROWS.find(row => row.id === id)?.currency || 'USD';
 
   // Defaults for new salary lines, editable on the Config page; the built-in values are the fallback.
-  const DEFAULT_SETTINGS = { family: DEFAULT_FAMILY, defaultRows: DEFAULT_ROWS, otherDefaults: [], visibilityVersion: 1, monthlySaving: MONTHLY_SAVING_DEFAULT, monthlyInvestment: MONTHLY_INVESTMENT_DEFAULT, allocation: ALLOCATION_DEFAULT, monthlyPay: MONTHLY_PAY_UAH, tenthSpendUah: TENTH_SPEND_UAH };
+  const DEFAULT_SETTINGS = { family: DEFAULT_FAMILY, defaultRows: DEFAULT_ROWS, otherDefaults: [], visibilityVersion: 1, rowsVersion: 2, monthlySaving: MONTHLY_SAVING_DEFAULT, monthlyInvestment: MONTHLY_INVESTMENT_DEFAULT, allocation: ALLOCATION_DEFAULT, monthlyPay: MONTHLY_PAY_UAH, tenthSpendUah: TENTH_SPEND_UAH };
   const nonNegative = (v, fallback) => { const n = parseFloat(v); return Number.isFinite(n) && n >= 0 ? round2(n) : fallback; };
   const normalizeSettings = (raw) => {
     const s = raw && typeof raw === 'object' ? raw : {};
@@ -374,7 +444,10 @@ const Savings = (() => {
           id,
           name: String(member.name || id).trim() || id,
           enabled: member.enabled !== false,
-          monthlyAmount: nonNegative(member.monthlyAmount, legacy ? legacy.monthlyAmount : 0)
+          monthlyAmount: nonNegative(member.monthlyAmount, legacy ? legacy.monthlyAmount : 0),
+          ...(CURRENCIES.includes(member.currency) && member.currency !== 'USD' ? { currency: member.currency } : {}),
+          ...(member.newSalariesOnly === true ? { newSalariesOnly: true } : {}),
+          ...Object.fromEntries(FAMILY_FLAGS.map(flag => [flag, flag === 'showInSalaryFooter' && typeof member[flag] !== 'boolean' ? member.showInFooter !== false : member[flag] !== false]))
         };
       }).filter(Boolean)
       : d.family.map(person => ({
@@ -383,7 +456,7 @@ const Savings = (() => {
       }));
     const allocation = Object.fromEntries(family.filter(person => person.enabled).map(person => [person.id, person.monthlyAmount]));
     const rowIds = new Set();
-    const defaultRows = Array.isArray(s.defaultRows)
+    const mappedRows = Array.isArray(s.defaultRows)
       ? s.defaultRows.map(row => {
         const fallback = d.defaultRows.find(item => item.id === row.id);
         if (!fallback || rowIds.has(row.id)) return null;
@@ -391,12 +464,19 @@ const Savings = (() => {
         return {
           id: fallback.id,
           name: String(row.name || fallback.name).trim() || fallback.name,
-          currency: fallback.currency,
+          currency: fallback.id === OTHER ? 'USD' : CURRENCIES.includes(row.currency) ? row.currency : fallback.currency,
+          ...(fallback.base ? { base: RATE_BASES.includes(row.base) ? row.base : fallback.base } : {}),
           amount: nonNegative(row.amount, fallback.amount),
           enabled: row.enabled !== false,
           showInSalary: row.showInSalary === true,
+          showInSalaryFooter: typeof row.showInSalaryFooter === 'boolean' ? row.showInSalaryFooter : row.showInFooter !== false,
           showInHistory: row.showInHistory === true,
-          includeInTotal: row.includeInTotal === true
+          showInHistoryDetails: typeof row.showInHistoryDetails === 'boolean' ? row.showInHistoryDetails : row.showInHistory === true,
+          showInDropdown: typeof row.showInDropdown === 'boolean' ? row.showInDropdown : fallback.showInDropdown,
+          showInBlocks: typeof row.showInBlocks === 'boolean' ? row.showInBlocks : fallback.showInBlocks,
+          showInFooter: row.showInFooter !== false,
+          includeInTotal: row.includeInTotal === true,
+          ...(row.newSalariesOnly === true ? { newSalariesOnly: true } : {})
         };
       }).filter(Boolean)
       : d.defaultRows.map(row => {
@@ -406,6 +486,10 @@ const Savings = (() => {
               : row.id === 'tenth_spend' ? s.tenthSpendUah : row.amount;
         return { ...row, amount: nonNegative(legacyAmount, row.amount) };
       });
+    // Settings saved before Other became a row still show it.
+    const defaultRows = Array.isArray(s.defaultRows) && s.rowsVersion !== 2 && !mappedRows.some(row => row.id === OTHER)
+      ? [...mappedRows, { ...d.defaultRows.find(row => row.id === OTHER) }]
+      : mappedRows;
     const rowDefault = (id, fallback = 0) => defaultRows.find(row => row.id === id)?.amount ?? fallback;
     const seenDefaults = new Set();
     const otherDefaults = Array.isArray(s.otherDefaults) ? s.otherDefaults.map(item => {
@@ -413,14 +497,18 @@ const Savings = (() => {
       const name = String(item && item.name || '').trim();
       if (!/^default_[\w-]+$/.test(id) || !name || seenDefaults.has(id)) return null;
       seenDefaults.add(id);
-      return { id, name, currency: item.currency === 'UAH' ? 'UAH' : 'USD', amount: nonNegative(item.amount, 0), enabled: item.enabled !== false,
-        showInSalary: item.showInSalary === true, showInHistory: item.showInHistory === true, includeInTotal: item.includeInTotal === true };
+      return { id, name, currency: CURRENCIES.includes(item.currency) ? item.currency : 'USD', amount: nonNegative(item.amount, 0), enabled: item.enabled !== false,
+        showInSalary: item.showInSalary === true,
+        showInSalaryFooter: typeof item.showInSalaryFooter === 'boolean' ? item.showInSalaryFooter : item.showInFooter !== false,
+        showInHistory: item.showInHistory === true, showInHistoryDetails: typeof item.showInHistoryDetails === 'boolean' ? item.showInHistoryDetails : item.showInHistory === true, showInDropdown: item.showInDropdown === true, showInBlocks: item.showInBlocks === true, showInFooter: item.showInFooter !== false, includeInTotal: item.includeInTotal === true,
+        ...(item.newSalariesOnly === true ? { newSalariesOnly: true } : {}) };
     }).filter(Boolean) : [];
     return {
       family,
       defaultRows,
       otherDefaults,
       visibilityVersion: 1,
+      rowsVersion: 2,
       monthlySaving: rowDefault('monthly_saving', d.monthlySaving),
       monthlyInvestment: rowDefault('monthly_investment', d.monthlyInvestment),
       allocation,
@@ -430,15 +518,19 @@ const Savings = (() => {
   };
 
   // Salary left after everything in the details: 5%, 1%, 10%, per-person amounts and monthly pay (UAH at the month's rate).
-  const salaryLeftOf = (e, rate, family = DEFAULT_FAMILY) => {
+  const salaryLeftOf = (e, rate, family = DEFAULT_FAMILY, foreignRates = {}) => {
     if (!(rate > 0)) return null;
     const salary = salaryOf(e);
     const alloc = allocationOf(e, family);
-    const otherSpending = (e.otherDefaults || []).filter(item => item.enabled !== false && item.showInSalary !== false).reduce((total, item) =>
-      total + (item.currency === 'UAH' ? uahToUsd(item.amount, rate) : round2(item.amount)), 0);
-    const spent = (salary - netSalaryOf(e)) + tenthFromSalary(salary, e) + savingOf(e) + investmentOf(e)
-      + familyIds(family).reduce((s, id) => s + alloc[id], 0)
-      + payOf(e).reduce((s, uah) => s + uahToUsd(uah, rate), 0) + otherSpending;
+    const savingUsd = currencyToUsd(savingOf(e), defaultRowCurrency(e, 'monthly_saving'), rate, foreignRates, salary);
+    const investmentUsd = currencyToUsd(investmentOf(e), defaultRowCurrency(e, 'monthly_investment'), rate, foreignRates, salary);
+    const monthlyPayUsd = payOf(e).map((amount, i) => currencyToUsd(amount, defaultRowCurrency(e, `monthly_pay_${i}`), rate, foreignRates, salary));
+    const otherSpending = (e.otherDefaults || []).filter(item => item.enabled !== false).map(item => currencyToUsd(item.amount, item.currency, rate, foreignRates, salary));
+    const familyUsd = entryFamily(e, family).map(member => member.enabled === false ? 0 : currencyToUsd(alloc[memberId(member)] || 0, memberCurrency(member), rate, foreignRates, salary));
+    if ([savingUsd, investmentUsd, ...monthlyPayUsd, ...otherSpending, ...familyUsd].some(amount => amount === null)) return null;
+    const spent = (salary - netSalaryOf(e)) + tenthFromSalary(salary, e) + savingUsd + investmentUsd
+      + familyUsd.reduce((s, amount) => s + amount, 0)
+      + monthlyPayUsd.reduce((s, amount) => s + amount, 0) + otherSpending.reduce((s, amount) => s + amount, 0);
     return round2(salary - spent);
   };
 
@@ -488,7 +580,7 @@ const Savings = (() => {
 
   const parseItem = ({ who, note, amount }, family = PEOPLE) => {
     const value = round2(parseFloat(amount));
-    if (!(ITEM_WHO.includes(who) || family.includes(who) || /^person_[\w-]+$/.test(who)) || !(value > 0)) return null;
+    if (!(ITEM_WHO.includes(who) || family.includes(who) || /^person_[\w-]+$/.test(who) || ROW_WHO.test(who)) || !(value > 0)) return null;
     return { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), who, note: String(note || '').trim(), amount: value };
   };
 
@@ -503,19 +595,32 @@ const Savings = (() => {
   const toCsv = data => ['Month,Salary,Net salary,10%,After 10%,Me,Wife,Son,Total,Income,Spent,Left',
     ...data.map(e => [e.month, salaryOf(e), netSalaryOf(e), round2(e.tenth || 0), afterTenthOf(e), ...PEOPLE.map(f => round2(e[f])), sum(e), incomeOf(e), spentOf(e), leftOf(e)].join(','))].join('\n');
 
-  const isValidItem = s => s && typeof s.id === 'string' && (ITEM_WHO.includes(s.who) || /^person_[\w-]+$/.test(s.who))
+  const isValidItem = s => s && typeof s.id === 'string' && (ITEM_WHO.includes(s.who) || /^person_[\w-]+$/.test(s.who) || ROW_WHO.test(s.who))
     && typeof s.note === 'string' && Number.isFinite(s.amount);
   const isValidDefaultRow = row => {
     const fallback = row && DEFAULT_ROWS.find(item => item.id === row.id);
-    return !!fallback && typeof row.name === 'string' && row.name.trim() && row.currency === fallback.currency
+    return !!fallback && typeof row.name === 'string' && row.name.trim() && (fallback.id === OTHER ? row.currency === 'USD' : CURRENCIES.includes(row.currency))
       && Number.isFinite(row.amount) && row.amount >= 0 && typeof row.enabled === 'boolean'
+      && (row.base === undefined || RATE_BASES.includes(row.base))
       && typeof row.showInSalary === 'boolean' && typeof row.showInHistory === 'boolean'
+      && (row.showInBlocks === undefined || typeof row.showInBlocks === 'boolean')
+      && (row.showInHistoryDetails === undefined || typeof row.showInHistoryDetails === 'boolean')
+      && (row.showInDropdown === undefined || typeof row.showInDropdown === 'boolean')
+      && (row.newSalariesOnly === undefined || typeof row.newSalariesOnly === 'boolean')
+      && (row.showInFooter === undefined || typeof row.showInFooter === 'boolean')
+      && (row.showInSalaryFooter === undefined || typeof row.showInSalaryFooter === 'boolean')
       && typeof row.includeInTotal === 'boolean';
   };
   const isValidMonthlyDefault = item => item && /^default_[\w-]+$/.test(item.id) && typeof item.name === 'string'
-    && item.name.trim() && ['USD', 'UAH'].includes(item.currency) && Number.isFinite(item.amount) && item.amount >= 0
+    && item.name.trim() && CURRENCIES.includes(item.currency) && Number.isFinite(item.amount) && item.amount >= 0
     && (item.enabled === undefined || typeof item.enabled === 'boolean')
     && (item.showInSalary === undefined || typeof item.showInSalary === 'boolean')
+    && (item.showInBlocks === undefined || typeof item.showInBlocks === 'boolean')
+    && (item.showInHistoryDetails === undefined || typeof item.showInHistoryDetails === 'boolean')
+    && (item.showInDropdown === undefined || typeof item.showInDropdown === 'boolean')
+    && (item.newSalariesOnly === undefined || typeof item.newSalariesOnly === 'boolean')
+    && (item.showInFooter === undefined || typeof item.showInFooter === 'boolean')
+    && (item.showInSalaryFooter === undefined || typeof item.showInSalaryFooter === 'boolean')
     && (item.showInHistory === undefined || typeof item.showInHistory === 'boolean')
     && (item.includeInTotal === undefined || typeof item.includeInTotal === 'boolean');
 
@@ -526,6 +631,7 @@ const Savings = (() => {
     && (e.monthlySaving === undefined || Number.isFinite(e.monthlySaving))
     && (e.monthlyInvestment === undefined || Number.isFinite(e.monthlyInvestment))
     && (e.allocation === undefined || (e.allocation && typeof e.allocation === 'object' && !Array.isArray(e.allocation) && Object.values(e.allocation).every(Number.isFinite)))
+    && (e.familySetup === undefined || (Array.isArray(e.familySetup) && e.familySetup.every(item => item && typeof item.id === 'string' && typeof item.enabled === 'boolean' && (item.currency === undefined || CURRENCIES.includes(item.currency)))))
     && (e.defaultRows === undefined || (Array.isArray(e.defaultRows) && e.defaultRows.every(isValidDefaultRow)))
     && (e.otherDefaults === undefined || (Array.isArray(e.otherDefaults) && e.otherDefaults.every(isValidMonthlyDefault)))
     && KINDS.every(k => e[k] === undefined || (Array.isArray(e[k]) && e[k].every(isValidItem))));
@@ -533,7 +639,10 @@ const Savings = (() => {
   const BACKUP_FORMAT = 'family-savings-backup-v2';
   const isValidSettings = s => s && Array.isArray(s.family)
     && s.family.every(person => person && /^[\w-]+$/.test(person.id) && typeof person.name === 'string'
-      && typeof person.enabled === 'boolean' && Number.isFinite(person.monthlyAmount) && person.monthlyAmount >= 0)
+      && typeof person.enabled === 'boolean' && Number.isFinite(person.monthlyAmount) && person.monthlyAmount >= 0
+      && (person.currency === undefined || CURRENCIES.includes(person.currency))
+      && (person.newSalariesOnly === undefined || typeof person.newSalariesOnly === 'boolean')
+      && FAMILY_FLAGS.every(flag => person[flag] === undefined || typeof person[flag] === 'boolean'))
     && Number.isFinite(s.monthlySaving) && s.monthlySaving >= 0
     && Number.isFinite(s.monthlyInvestment) && s.monthlyInvestment >= 0
     && Array.isArray(s.defaultRows) && s.defaultRows.every(isValidDefaultRow)
@@ -546,7 +655,7 @@ const Savings = (() => {
     : !!parsed && parsed.format === BACKUP_FORMAT && isValidSavingsData(parsed.data) && isValidSettings(parsed.settings);
 
   return {
-    FIELDS, ITEM_WHO, PEOPLE, fmt, sum, esc, salaryOf, salaryTotal, defaultRowValue, netSalaryOf, netSalaryTotal, tenthFromSalary, withTenth, afterTenthOf, afterTenthTotal, spendingsOf, incomesOf, spentOf, incomeOf, leftOf, spentTotals, incomeTotals, totals,
-    sortDesc, parseAmount, parseSalaryCsv, toSalaryCsv, nextFreeMonth, shiftMonth, copyEntry, upsert, remove, parseEntry, setSalary, MONTHLY_PAY_UAH, MONTHLY_PAY_LABELS, DEFAULT_ROWS, payOf, setMonthlyPay, setDefaultRows, setOtherDefaults, allocationOf, setAllocation, savingOf, setMonthlySaving, savingLeftOf, investmentOf, setMonthlyInvestment, investmentLeftOf, salaryLeftOf, salaryIncomeOf, taxOf, onePercentOf, monthLabel, salaryDateOf, isValidGithubConfig, githubUrl, encodeContent, decodeContent, encryptText, decryptText, isEncrypted, rateDate, prevDate, uahToUsd, TENTH_SPEND_UAH, addTenthSpending, DEFAULT_SETTINGS, normalizeSettings, parseItem, addItem, removeItem, toCsv, BACKUP_FORMAT, createBackup, isValidBackup
+    FIELDS, ITEM_WHO, PEOPLE, fmt, sum, esc, salaryOf, salaryTotal, defaultRowValue, rowBaseValue, setRateLookup, netSalaryOf, netSalaryTotal, tenthFromSalary, withTenth, afterTenthOf, afterTenthTotal, spendingsOf, incomesOf, spentOf, incomeOf, leftOf, spentTotals, incomeTotals, totals,
+    sortDesc, parseAmount, parseSalaryCsv, toSalaryCsv, nextFreeMonth, shiftMonth, copyEntry, upsert, remove, parseEntry, setSalary, MONTHLY_PAY_UAH, MONTHLY_PAY_LABELS, DEFAULT_ROWS, CURRENCIES, currencyToUsd, payOf, setMonthlyPay, setDefaultRows, setOtherDefaults, allocationOf, setAllocation, entryMember, entryFamily, savingOf, setMonthlySaving, savingLeftOf, investmentOf, setMonthlyInvestment, investmentLeftOf, salaryLeftOf, salaryIncomeOf, taxOf, onePercentOf, monthLabel, salaryDateOf, isValidGithubConfig, githubUrl, encodeContent, decodeContent, encryptText, decryptText, isEncrypted, rateDate, prevDate, uahToUsd, TENTH_SPEND_UAH, addTenthSpending, DEFAULT_SETTINGS, normalizeSettings, parseItem, addItem, removeItem, toCsv, BACKUP_FORMAT, createBackup, isValidBackup
   };
 })();

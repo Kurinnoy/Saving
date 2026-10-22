@@ -6,6 +6,7 @@
 <title>Family Savings</title>
 <style>
   * { box-sizing: border-box; }
+  html { scrollbar-gutter: stable; }
   body { font-family: system-ui, sans-serif; margin: 0; background: #f3f5f9; color: #222; }
   main { width: 90%; margin: 0 auto; padding: 20px; }
   h1 { margin-top: 0; }
@@ -57,7 +58,7 @@
 <body>
 <main>
   <h1>Family Savings</h1>
-  <nav><a href="index.html" class="current">Family Savings</a><a href="salary.html">My salary</a><a href="config.html">Config</a><span id="syncStatus" class="note"></span></nav>
+  <nav><a href="salary.html">My salary</a><a href="index.html" class="current">Family Savings</a><a href="config.html">Config</a><span id="syncStatus" class="note"></span></nav>
 
   <div class="card">
     <div class="totals" id="totals"></div>
@@ -82,20 +83,56 @@
 <script src="settings.js"></script>
 <script>
 const KEY = 'familySavings';
-const { fmt, salaryOf, defaultRowValue, allocationOf, withTenth, esc, spendingsOf, incomesOf, spentOf, incomeOf, leftOf,
+const { fmt, salaryOf, salaryIncomeOf, defaultRowValue, rowBaseValue, allocationOf, withTenth, esc, spendingsOf, incomesOf, spentOf, incomeOf, leftOf,
   parseItem, addItem, removeItem, investmentLeftOf, savingLeftOf, monthLabel } = Savings;
 let family = [];
 let PEOPLE = [];
 let LABELS = {};
+// Closed months keep their exchange rates in the browser, which converts deductions set to UAH or EUR.
+const storedRates = JSON.parse(localStorage.getItem('uahUsdRates') || '{}');
+Savings.setRateLookup((month, currency) => storedRates[currency === 'USD' ? month : `${month}|${currency}`]);
 let historyDefaultRows = [];
 let historyOtherRows = [];
+let tenthInHistory = false;
+let tenthInTotal = false;
+let tenthInBlocks = false;
+let tenthInFooter = false;
+let historyPeople = [];
+let blockPeople = [];
+let blockRows = [];
+let detailRows = [];
+let whoOptions = [];
+// Line owner keys: saving, investment and 10% keep their own keys, every other row uses its id.
+const whoOfRow = row => ({ monthly_saving: 'saving', monthly_investment: 'investment', rate_10: 'tenth' })[row.id] || row.id;
+let footerIds = new Set();
+// A row that is not included is not shown anywhere either.
+const inDetails = item => item.enabled !== false;
+const shown = (item, flag) => inDetails(item) && item[flag] !== false;
 function refreshFamily() {
   const settings = AppSettings.load();
   family = settings.family.filter(person => person.enabled);
   PEOPLE = family.map(person => person.id);
+  historyPeople = family.filter(person => shown(person, 'showInHistory') && shown(person, 'showInHistoryDetails'));
+  blockPeople = family.filter(person => shown(person, 'showInBlocks'));
   LABELS = Object.fromEntries([...family.map(person => [person.id, person.name]), ['tenth', '10%'], ['investment', 'Investment'], ['saving', 'Monthly saving'], ['other', 'Other']]);
-  historyDefaultRows = settings.defaultRows.filter(row => row.showInHistory);
-  historyOtherRows = settings.otherDefaults.filter(row => row.showInHistory);
+  // The 10% money has its own column, so the 10% deduction row is not listed a second time.
+  const tenthRow = settings.defaultRows.find(row => row.id === 'rate_10');
+  tenthInHistory = !!(tenthRow && inDetails(tenthRow) && tenthRow.showInHistory && tenthRow.showInHistoryDetails !== false);
+  tenthInTotal = tenthInHistory && tenthRow.includeInTotal;
+  tenthInBlocks = !!(tenthRow && inDetails(tenthRow) && tenthRow.showInBlocks);
+  tenthInFooter = !!(tenthRow && shown(tenthRow, 'showInFooter'));
+  historyDefaultRows = settings.defaultRows.filter(row => inDetails(row) && row.showInHistory && row.showInHistoryDetails !== false && row.id !== 'rate_10');
+  historyOtherRows = settings.otherDefaults.filter(row => inDetails(row) && row.showInHistory && row.showInHistoryDetails !== false);
+  blockRows = [...settings.defaultRows.filter(row => row.id !== 'rate_10'), ...settings.otherDefaults].filter(row => inDetails(row) && row.enabled !== false && row.showInBlocks);
+  detailRows = [...settings.defaultRows, ...settings.otherDefaults].filter(row => row.id !== 'other' && inDetails(row) && row.enabled !== false && row.showInHistoryDetails);
+  const allRows = [...settings.defaultRows, ...settings.otherDefaults];
+  allRows.forEach(row => { LABELS[whoOfRow(row)] = row.id === 'rate_10' ? '10%' : row.name; });
+  whoOptions = [
+    ...family.filter(person => shown(person, 'showInDropdown')).map(person => [person.id, person.name]),
+    ...allRows.filter(row => inDetails(row) && row.showInDropdown).map(row => [whoOfRow(row), LABELS[whoOfRow(row)]])
+  ];
+  footerIds = new Set([...historyPeople.filter(person => shown(person, 'showInFooter')).map(person => person.id),
+    ...[...historyDefaultRows, ...historyOtherRows].filter(row => shown(row, 'showInFooter')).map(row => row.id)]);
 }
 refreshFamily();
 const open = new Set();
@@ -109,8 +146,8 @@ const money = n => {
   return `<span class="${value.startsWith('-') ? 'neg' : ''}">${value}</span>`;
 };
 
-// History columns: the selected family members and designated savings buckets.
-let COLUMNS = [...PEOPLE, 'tenth', 'other'];
+// History columns: the family members shown in History, the 10% money when shown, and Other.
+let COLUMNS = [...PEOPLE];
 
 // Investment: the month's My salary investment plus its income and spending lines.
 const investmentShown = investmentLeftOf;
@@ -118,8 +155,8 @@ const investmentShown = investmentLeftOf;
 // Monthly saving: the month's My salary saving plus its income and spending lines.
 const savingShown = savingLeftOf;
 
-// Row total: monthly saving, investment and what is left for each person; the 10% money is not included.
-const rowTotal = e => savingShown(e) + investmentShown(e) + COLUMNS.reduce((s, f) => s + leftOf(e, f, family), 0)
+// Row total: what is left for each person and Other, plus the 10% money and the history rows ticked "Include in Total".
+const rowTotal = e => [...historyPeople.filter(person => shown(person, 'includeInTotal')).map(person => person.id), ...(tenthInTotal ? ['tenth'] : [])].reduce((s, f) => s + leftOf(e, f, family), 0)
   + [...historyDefaultRows, ...historyOtherRows].filter(row => row.includeInTotal).reduce((sum, row) => sum + defaultRowValue(e, row), 0);
 
 let sort = { key: 'month', dir: 'desc' };
@@ -127,14 +164,11 @@ let HEAD = [];
 let sortValue = {};
 
 function refreshHistoryHead() {
-  COLUMNS = [...PEOPLE, 'tenth', 'other'];
+  COLUMNS = [...historyPeople.map(person => person.id), ...(tenthInHistory ? ['tenth'] : [])];
   HEAD = [
     ['month', 'Month', e => e.month],
-    ['saving', 'Monthly saving', savingShown],
-    ['investment', 'Investment', investmentShown],
-    ...family.map(person => [person.id, person.name, e => leftOf(e, person.id, family)]),
-    ['tenth', '10%', e => leftOf(e, 'tenth', family)],
-    ['other', 'Other', e => leftOf(e, 'other', family)],
+    ...historyPeople.map(person => [person.id, person.name, e => leftOf(e, person.id, family)]),
+    ...(tenthInHistory ? [['tenth', '10%', e => leftOf(e, 'tenth', family)]] : []),
     ...historyDefaultRows.map(row => [row.id, `${row.name} (${row.currency === '%' ? 'USD' : row.currency})`, e => defaultRowValue(e, row)]),
     ...historyOtherRows.map(row => [row.id, `${row.name} (${row.currency === '%' ? 'USD' : row.currency})`, e => defaultRowValue(e, row)]),
     ['total', 'Total', rowTotal]
@@ -173,7 +207,10 @@ function detailsTable(e) {
   const rows = [];
   if (salaryOf(e) > 0 || e.allocation) {
     const alloc = allocationOf(e, family);
-    family.forEach(person => rows.push(itemRow(e, 'incomes', { who: person.id, note: 'From My salary', amount: alloc[person.id] }, true)));
+    family.filter(person => shown(person, 'showInHistoryDetails')).forEach(person => rows.push(itemRow(e, 'incomes', { who: person.id, note: 'From My salary', amount: salaryIncomeOf(e, person.id, family) }, true)));
+    // Saving and investment are money set aside (income); every other monthly row is money going out.
+    detailRows.forEach(row => rows.push(itemRow(e, ['monthly_saving', 'monthly_investment'].includes(row.id) ? 'incomes' : 'spendings',
+      { who: row.name, note: `From My salary (${row.currency === '%' ? 'USD' : row.currency})`, amount: rowBaseValue(e, row) }, true)));
   }
   incomesOf(e).forEach(s => rows.push(itemRow(e, 'incomes', s, false)));
   spendingsOf(e).forEach(s => rows.push(itemRow(e, 'spendings', s, false)));
@@ -187,7 +224,7 @@ function detailsTable(e) {
 function detailsHtml(e) {
   const form = `<form class="spendForm" data-month="${e.month}">
     <label class="incomeToggle"><input type="checkbox" name="income"> Income</label>
-    <select name="who">${[...family.map(person => [person.id, person.name]), ['tenth', '10%'], ['investment', 'Investment'], ['saving', 'Monthly saving'], ['other', 'Other']].map(([id, label]) => `<option value="${esc(id)}">${esc(label)}</option>`).join('')}</select>
+    <select name="who">${whoOptions.map(([id, label]) => `<option value="${esc(id)}">${esc(label)}</option>`).join('')}</select>
     <input name="note" placeholder="Note">
     <input name="amount" type="number" min="0.01" step="0.01" placeholder="Amount" required>
     <button type="submit">Add</button>
@@ -208,18 +245,18 @@ function render() {
     return `<th class="sortable" data-key="${esc(key)}">${esc(label)}${arrow}</th>`;
   }).join('') + '<th></th>';
 
+  const blockCard = row => {
+    const value = data.reduce((s, e) => s + (row.id === 'monthly_saving' ? savingShown(e) : row.id === 'monthly_investment' ? investmentShown(e) : defaultRowValue(e, row)), 0);
+    return `<div class="total"><span>${esc(row.name)}</span><strong>${money(value)}</strong></div>`;
+  };
   $('totals').innerHTML =
-    `<div class="total"><span>Monthly saving</span><strong>${fmt(data.reduce((s, e) => s + savingShown(e), 0))}</strong></div>
-     <div class="total"><span>Investment</span><strong>${money(data.reduce((s, e) => s + investmentShown(e), 0))}</strong></div>` +
-    family.map(person => `<div class="total"><span>${esc(person.name)} money</span><strong>${money(left(person.id))}</strong>${small(person.id)}</div>`).join('') +
-    `<div class="total"><span>10% money</span><strong>${money(left('tenth'))}</strong>${small('tenth')}</div>` +
-    `<div class="total"><span>Other</span><strong>${money(left('other'))}</strong><small>Income ${fmt(income('other'))} | Spent ${fmt(spent('other'))}</small></div>`;
+    blockRows.map(blockCard).join('') +
+    blockPeople.map(person => `<div class="total"><span>${esc(person.name)} money</span><strong>${money(left(person.id))}</strong>${small(person.id)}</div>`).join('') +
+    (tenthInBlocks ? `<div class="total"><span>10% money</span><strong>${money(left('tenth'))}</strong>${small('tenth')}</div>` : '');
 
   $('rows').innerHTML = data.map(e => `
     <tr>
       <td>${monthLabel(e.month)}</td>
-      <td>${fmt(savingShown(e))}</td>
-      <td>${fmt(investmentShown(e))}</td>
       ${COLUMNS.map(f => `<td>${money(leftOf(e, f, family))}</td>`).join('')}
       ${[...historyDefaultRows, ...historyOtherRows].map(row => `<td>${money(defaultRowValue(e, row))}</td>`).join('')}
       <td><strong>${money(rowTotal(e))}</strong></td>
@@ -228,8 +265,9 @@ function render() {
       </td>
     </tr>${open.has(e.month) ? detailsHtml(e) : ''}`).join('') || `<tr><td colspan="${HEAD.length + 1}">No data yet</td></tr>`;
 
+  const footerShown = f => f === 'tenth' ? tenthInFooter : footerIds.has(f);
   $('foot').innerHTML = data.length
-    ? `<td>Total</td><td>${fmt(data.reduce((s, e) => s + savingShown(e), 0))}</td><td>${fmt(data.reduce((s, e) => s + investmentShown(e), 0))}</td>${COLUMNS.map(f => `<td>${money(data.reduce((s, e) => s + leftOf(e, f, family), 0))}</td>`).join('')}${[...historyDefaultRows, ...historyOtherRows].map(row => `<td>${money(data.reduce((s, e) => s + defaultRowValue(e, row), 0))}</td>`).join('')}<td><strong>${money(data.reduce((s, e) => s + rowTotal(e), 0))}</strong></td><td></td>`
+    ? `<td>Total</td>${COLUMNS.map(f => `<td>${footerShown(f) ? money(data.reduce((s, e) => s + leftOf(e, f, family), 0)) : ''}</td>`).join('')}${[...historyDefaultRows, ...historyOtherRows].map(row => `<td>${footerIds.has(row.id) ? money(data.reduce((s, e) => s + defaultRowValue(e, row), 0)) : ''}</td>`).join('')}<td><strong>${money(data.reduce((s, e) => s + rowTotal(e), 0))}</strong></td><td></td>`
     : '';
 }
 

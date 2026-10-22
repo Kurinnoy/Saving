@@ -37,18 +37,27 @@
   #defStatus { margin-top: 12px; padding: 8px 12px; border-radius: 6px; display: none; }
   #defStatus.ok { display: block; background: #e3f6e8; color: #1a7a35; }
   #defStatus.err { display: block; background: #fde4e4; color: #b00020; }
+  #familyStatus { margin-top: 12px; padding: 8px 12px; border-radius: 6px; display: none; }
+  #familyStatus.ok { display: block; background: #e3f6e8; color: #1a7a35; }
+  #familyStatus.err { display: block; background: #fde4e4; color: #b00020; }
+  .tools .toggle { margin-top: 0; }
   .family-scroll { overflow-x: auto; margin: 12px 0; }
   .family-table { width: 100%; border-collapse: collapse; }
   .family-table th, .family-table td { padding: 8px; border-bottom: 1px solid #e3e3e3; text-align: left; }
   .family-table input[type=checkbox] { width: auto; }
+  .family-table th label { display: flex; align-items: center; gap: 6px; font-size: inherit; color: inherit; cursor: pointer; }
   .family-table input[type=text], .family-table input[type=number] { min-width: 120px; }
   button.remove { background: #d33; padding: 4px 8px; font-size: 13px; }
+  button.drag-handle { background: transparent; color: #777; padding: 4px 6px; font-size: 18px; cursor: grab; }
+  tr.dragging { opacity: .4; }
+  tr.drop-before > * { box-shadow: inset 0 3px 0 #2f6fed; }
+  tr.drop-after > * { box-shadow: inset 0 -3px 0 #2f6fed; }
 </style>
 </head>
 <body>
 <main>
   <h1>Config</h1>
-  <nav><a href="index.html">Family Savings</a><a href="salary.html">My salary</a><a href="config.html" class="current">Config</a></nav>
+  <nav><a href="salary.html">My salary</a><a href="index.html">Family Savings</a><a href="config.html" class="current">Config</a></nav>
   <div class="tabs" role="tablist" aria-label="Config sections">
     <button type="button" class="tab" id="tabFamily" role="tab" aria-controls="panelFamily" aria-selected="true" tabindex="0">Family setup</button>
     <button type="button" class="tab" id="tabOther" role="tab" aria-controls="panelOther" aria-selected="false" tabindex="-1">Other monthly defaults</button>
@@ -93,27 +102,28 @@
 
   <div class="card" id="panelFamily" role="tabpanel" aria-labelledby="tabFamily" tabindex="0">
     <h2>Family setup</h2>
-    <p class="note">Select the people to include and set the amount saved for each on every new salary line.</p>
+    <p class="note">Select the people to include and set the amount saved for each on every new salary line. The checkboxes choose where each person appears: Salary table columns, History table columns, History details (each month's Income/Spending list on Family Savings), the Totals blocks on Family Savings, the Salary footer and History total rows and the History Total column. Unticking Include hides the person everywhere and locks their other checkboxes. Drag a row by its handle (or focus the handle and press the up or down arrow) to change the order, then save.</p>
     <div class="family-scroll">
       <table class="family-table">
-        <thead><tr><th>Include</th><th>Person</th><th>Monthly amount ($)</th><th></th></tr></thead>
+        <thead><tr><th></th><th><label><input type="checkbox" id="includeAll"> Include</label></th><th></th><th>Person</th><th>Currency</th><th>Monthly amount</th><th><label><input type="checkbox" data-col="salary"> Salary table</label></th><th><label><input type="checkbox" data-col="salaryFooter"> Salary footer</label></th><th><label><input type="checkbox" data-col="historyDetails"> History details</label></th><th><label><input type="checkbox" data-col="dropdown"> Add to dropdown</label></th><th><label><input type="checkbox" data-col="history"> History table</label></th><th><label><input type="checkbox" data-col="blocks"> Totals block</label></th><th><label><input type="checkbox" data-col="footer"> History total</label></th><th><label><input type="checkbox" data-col="total"> Include in Total</label></th><th></th></tr></thead>
         <tbody id="familyRows"></tbody>
       </table>
     </div>
     <div class="tools">
       <button type="button" id="addFamilyMember" class="secondary">Add person</button>
       <button type="button" id="saveFamily">Save family setup</button>
+      <label class="toggle"><input type="checkbox" id="autoSaveFamily"> Auto save</label>
     </div>
     <div id="familyStatus" role="status"></div>
   </div>
 
   <div class="card" id="panelOther" role="tabpanel" aria-labelledby="tabOther" tabindex="0" hidden>
     <h2>Other monthly defaults</h2>
-    <p class="note">These zero-valued defaults are copied into new salary lines. Existing lines keep their saved amounts.</p>
+    <p class="note">These zero-valued defaults are copied into new salary lines. Existing lines keep their saved amounts. "New salaries only" keeps a row's Include, amount and currency as they are in the salary months you already have, so a change here only affects salaries you add afterwards (a month that never had the row does not get it). "Totals block" is the summary block at the top of Family Savings; "History details" adds the row to each month's Income/Spending list there; "Add to dropdown" lets you pick the row in the Who list when adding an income or spending line (lines for it change its amount like Monthly saving); Unticking Include hides the row everywhere (including the My salary Details) and locks its other checkboxes; "Salary footer" is the Total row under the My salary table and "History total" the Total row under the History table on Family Savings. Drag a row by its handle (or focus the handle and press the up or down arrow) to change the order, then save; rows stay within their own group. A % row is taken either from the Salary or from the Net salary left after the % rows above it (for 1000: 1% = 10, 5% = 50, then 10% of 940 = 94).</p>
     <form id="defaultsForm" autocomplete="off">
       <div class="family-scroll">
         <table class="family-table">
-            <thead><tr><th>Calculate</th><th>Salary table</th><th>History table</th><th>Include in Total</th><th>Monthly item</th><th>Currency</th><th>Default amount / rate</th><th></th></tr></thead>
+            <thead><tr><th></th><th><label><input type="checkbox" id="calculateAll"> Include</label></th><th><label><input type="checkbox" data-col="newOnly"> New salaries only</label></th><th>Monthly item</th><th>Currency</th><th>Default amount / rate</th><th><label><input type="checkbox" data-col="salary"> Salary table</label></th><th><label><input type="checkbox" data-col="salaryFooter"> Salary footer</label></th><th><label><input type="checkbox" data-col="historyDetails"> History details</label></th><th><label><input type="checkbox" data-col="dropdown"> Add to dropdown</label></th><th><label><input type="checkbox" data-col="history"> History table</label></th><th><label><input type="checkbox" data-col="blocks"> Totals block</label></th><th><label><input type="checkbox" data-col="footer"> History total</label></th><th><label><input type="checkbox" data-col="total"> Include in Total</label></th><th></th></tr></thead>
             <tbody id="defaultRows"></tbody>
           <tbody id="otherDefaultRows"></tbody>
         </table>
@@ -122,6 +132,7 @@
     <div class="tools">
       <button type="button" id="addOtherDefault" class="secondary">Add monthly item</button>
       <button type="button" id="saveDefaults">Save other defaults</button>
+      <label class="toggle"><input type="checkbox" id="autoSaveDefaults"> Auto save</label>
       <button type="button" id="resetDefaults" class="secondary">Reset other defaults</button>
     </div>
     <div id="defStatus" role="status"></div>
@@ -206,51 +217,229 @@ async function run(work, report = status) {
 
 $('form').addEventListener('submit', ev => ev.preventDefault());
 
+const dragCell = '<td><button type="button" class="drag-handle" data-drag aria-label="Move row" title="Drag to reorder">&#8942;&#8942;</button></td>';
+const flagBox = (flag, name, label, checked) => `<td><input type="checkbox" data-flag="${flag}" aria-label="${esc(label)}: ${esc(name)}" ${checked ? 'checked' : ''}></td>`;
+const FAMILY_VIEW_FLAGS = [['showInSalary', 'Show in Salary table'], ['showInSalaryFooter', 'Show in Salary footer total'], ['showInHistoryDetails', 'Show in History details'], ['showInDropdown', 'Add to Who dropdown'], ['showInHistory', 'Show in History table'], ['showInBlocks', 'Show in Totals block'], ['showInFooter', 'Show in History total'], ['includeInTotal', 'Include in History Total']];
+
 function familyRow(person) {
   return `<tr data-id="${esc(person.id)}">
+    ${dragCell}
     <td><input type="checkbox" data-enabled aria-label="Include ${esc(person.name)}" ${person.enabled ? 'checked' : ''}></td>
-    <td><input type="text" data-name value="${esc(person.name)}" required aria-label="Person name"></td>
+    <td></td>
+    <th scope="row"><input type="text" data-name value="${esc(person.name)}" required aria-label="Person name"></th>
+    <td><select data-currency aria-label="${esc(person.name)} currency">${Savings.CURRENCIES.map(code => `<option value="${code}" ${(person.currency || 'USD') === code ? 'selected' : ''}>${code}</option>`).join('')}</select></td>
     <td><input type="number" data-amount min="0" step="0.01" value="${person.monthlyAmount}" aria-label="Monthly amount"></td>
+    ${FAMILY_VIEW_FLAGS.map(([flag, label]) => flagBox(flag, person.name, label, person[flag] !== false)).join('')}
     <td><button type="button" class="remove" data-remove aria-label="Remove ${esc(person.name)}">Remove</button></td>
   </tr>`;
 }
 
 function defaultRow(row) {
+  // Other has no amount: it only totals the income and spending lines added to it.
+  const isOther = row.id === 'other';
+  const currencySelect = `<select data-currency aria-label="${esc(row.name)} currency">${Savings.CURRENCIES.map(code => `<option value="${code}" ${row.currency === code ? 'selected' : ''}>${code}</option>`).join('')}</select>`;
+  // "Calculated from" only means something while a deduction is a percentage.
+  const baseSelect = row.id.startsWith('rate_')
+    ? ` <select data-base ${row.currency === '%' ? '' : 'hidden'} aria-label="${esc(row.name)} calculated from"><option value="salary" ${row.base === 'salary' ? 'selected' : ''}>of Salary</option><option value="net" ${row.base === 'net' ? 'selected' : ''}>of Net salary (after % rows above)</option></select>`
+    : '';
+  const currency = isOther ? '<td>USD</td>' : `<td>${currencySelect}${baseSelect}</td>`;
   return `<tr data-id="${esc(row.id)}">
+    ${dragCell}
     <td><input type="checkbox" data-enabled aria-label="Include ${esc(row.name)}" ${row.enabled ? 'checked' : ''}></td>
-    <td><input type="checkbox" data-show-salary aria-label="Show ${esc(row.name)} in Salary table" ${row.showInSalary ? 'checked' : ''}></td>
-    <td><input type="checkbox" data-show-history aria-label="Show ${esc(row.name)} in History table" ${row.showInHistory ? 'checked' : ''}></td>
-    <td><input type="checkbox" data-total aria-label="Include ${esc(row.name)} in History Total" ${row.includeInTotal ? 'checked' : ''}></td>
+    <td><input type="checkbox" data-new-only aria-label="Include ${esc(row.name)} only in new salaries" ${row.newSalariesOnly ? 'checked' : ''}></td>
     <th scope="row"><input type="text" data-name value="${esc(row.name)}" required aria-label="Monthly item name"></th>
-    <td>${esc(row.currency)}</td>
-    <td><input type="number" data-amount min="0" step="0.01" value="${row.amount}" aria-label="${esc(row.name)} default amount or rate"></td>
+    ${currency}
+    <td><input type="number" data-amount min="0" step="0.01" value="${row.amount}" ${isOther ? 'disabled' : ''} aria-label="${esc(row.name)} default amount or rate"></td>
+    <td><input type="checkbox" data-show-salary aria-label="Show ${esc(row.name)} in Salary table" ${row.showInSalary ? 'checked' : ''}></td>
+    ${flagBox('showInSalaryFooter', row.name, 'Show in Salary footer total', row.showInSalaryFooter !== false)}
+    ${flagBox('showInHistoryDetails', row.name, 'Show in History details', row.showInHistoryDetails === true)}
+    ${flagBox('showInDropdown', row.name, 'Add to Who dropdown', row.showInDropdown === true)}
+    <td><input type="checkbox" data-show-history aria-label="Show ${esc(row.name)} in History table" ${row.showInHistory ? 'checked' : ''}></td>
+    ${flagBox('showInBlocks', row.name, 'Show in Totals block', row.showInBlocks)}
+    ${flagBox('showInFooter', row.name, 'Show in History total', row.showInFooter !== false)}
+    <td><input type="checkbox" data-total aria-label="Include ${esc(row.name)} in History Total" ${row.includeInTotal ? 'checked' : ''}></td>
     <td><button type="button" class="remove" data-remove aria-label="Remove ${esc(row.name)}">Remove</button></td>
   </tr>`;
 }
 
 function otherDefaultRow(item) {
   return `<tr data-id="${esc(item.id)}">
-    <td><input type="checkbox" data-enabled aria-label="Calculate ${esc(item.name)}" ${item.enabled !== false ? 'checked' : ''}></td>
-    <td><input type="checkbox" data-show-salary aria-label="Show ${esc(item.name)} in Salary table" ${item.showInSalary === true ? 'checked' : ''}></td>
-    <td><input type="checkbox" data-show-history aria-label="Show ${esc(item.name)} in History table" ${item.showInHistory === true ? 'checked' : ''}></td>
-    <td><input type="checkbox" data-total aria-label="Include ${esc(item.name)} in History Total" ${item.includeInTotal === true ? 'checked' : ''}></td>
+    ${dragCell}
+    <td><input type="checkbox" data-enabled aria-label="Include ${esc(item.name)}" ${item.enabled !== false ? 'checked' : ''}></td>
+    <td><input type="checkbox" data-new-only aria-label="Include ${esc(item.name)} only in new salaries" ${item.newSalariesOnly ? 'checked' : ''}></td>
     <th scope="row"><input type="text" data-name value="${esc(item.name)}" required aria-label="Monthly item name"></th>
-    <td><select data-currency aria-label="Currency"><option value="USD" ${item.currency === 'USD' ? 'selected' : ''}>USD</option><option value="UAH" ${item.currency === 'UAH' ? 'selected' : ''}>UAH</option></select></td>
+    <td><select data-currency aria-label="Currency">${Savings.CURRENCIES.map(code => `<option value="${code}" ${item.currency === code ? 'selected' : ''}>${code}</option>`).join('')}</select></td>
     <td><input type="number" data-amount min="0" step="0.01" value="${item.amount}" aria-label="Default amount"></td>
+    <td><input type="checkbox" data-show-salary aria-label="Show ${esc(item.name)} in Salary table" ${item.showInSalary === true ? 'checked' : ''}></td>
+    ${flagBox('showInSalaryFooter', item.name, 'Show in Salary footer total', item.showInSalaryFooter !== false)}
+    ${flagBox('showInHistoryDetails', item.name, 'Show in History details', item.showInHistoryDetails === true)}
+    ${flagBox('showInDropdown', item.name, 'Add to Who dropdown', item.showInDropdown === true)}
+    <td><input type="checkbox" data-show-history aria-label="Show ${esc(item.name)} in History table" ${item.showInHistory === true ? 'checked' : ''}></td>
+    ${flagBox('showInBlocks', item.name, 'Show in Totals block', item.showInBlocks === true)}
+    ${flagBox('showInFooter', item.name, 'Show in History total', item.showInFooter !== false)}
+    <td><input type="checkbox" data-total aria-label="Include ${esc(item.name)} in History Total" ${item.includeInTotal === true ? 'checked' : ''}></td>
     <td><button type="button" class="remove" data-remove aria-label="Remove ${esc(item.name)}">Remove</button></td>
   </tr>`;
 }
+
+// Rows move only inside their own tbody; the DOM order is what gets saved.
+function enableReorder(tbody) {
+  let dragged = null;
+  const clearMarks = () => tbody.querySelectorAll('.drop-before, .drop-after').forEach(r => r.classList.remove('drop-before', 'drop-after'));
+  const release = () => tbody.querySelectorAll('tr[draggable]').forEach(r => r.removeAttribute('draggable'));
+  tbody.addEventListener('pointerdown', ev => {
+    const handle = ev.target.closest('[data-drag]');
+    if (handle) handle.closest('tr').draggable = true;
+  });
+  tbody.addEventListener('pointerup', release);
+  tbody.addEventListener('dragstart', ev => {
+    dragged = ev.target.closest('tr');
+    if (!dragged || dragged.parentElement !== tbody) return;
+    ev.dataTransfer.effectAllowed = 'move';
+    ev.dataTransfer.setData('text/plain', dragged.dataset.id);
+    dragged.classList.add('dragging');
+  });
+  tbody.addEventListener('dragover', ev => {
+    const row = ev.target.closest('tr');
+    if (!dragged || !row || row.parentElement !== tbody || row === dragged) return;
+    ev.preventDefault();
+    clearMarks();
+    const rect = row.getBoundingClientRect();
+    row.classList.add(ev.clientY > rect.top + rect.height / 2 ? 'drop-after' : 'drop-before');
+  });
+  tbody.addEventListener('drop', ev => {
+    const row = ev.target.closest('tr');
+    if (!dragged || !row || row.parentElement !== tbody || row === dragged) return;
+    ev.preventDefault();
+    if (row.classList.contains('drop-after')) row.after(dragged); else row.before(dragged);
+    tbody.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  tbody.addEventListener('dragend', () => {
+    if (dragged) dragged.classList.remove('dragging');
+    dragged = null;
+    clearMarks();
+    release();
+  });
+  tbody.addEventListener('keydown', ev => {
+    const handle = ev.target.closest('[data-drag]');
+    if (!handle || (ev.key !== 'ArrowUp' && ev.key !== 'ArrowDown')) return;
+    ev.preventDefault();
+    const row = handle.closest('tr');
+    if (ev.key === 'ArrowUp' && row.previousElementSibling) row.previousElementSibling.before(row);
+    else if (ev.key === 'ArrowDown' && row.nextElementSibling) row.nextElementSibling.after(row);
+    handle.focus();
+    tbody.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
+['familyRows', 'defaultRows', 'otherDefaultRows'].forEach(id => enableReorder($(id)));
+
+// A row that is not included is shown nowhere, and one outside History details has no History table column; their boxes are cleared and locked and the previous choices return when ticked again.
+const detailsBox = tr => tr.querySelector('[data-enabled]');
+function applyDetailsRule(tr) {
+  const details = detailsBox(tr);
+  if (!details) return;
+  const historyDetails = tr.querySelector('[data-flag="showInHistoryDetails"]');
+  [...tr.querySelectorAll('[data-show-salary], [data-show-history], [data-total], [data-flag]')].filter(box => box !== details).forEach(box => {
+    // The History table box also needs History details.
+    const needsHistoryDetails = box.matches('[data-show-history], [data-flag="showInHistory"]');
+    if (!details.checked || (needsHistoryDetails && !historyDetails.checked)) {
+      if (!box.disabled) box.dataset.prev = box.checked ? '1' : '0';
+      box.checked = false;
+      box.disabled = true;
+    } else if (box.disabled) {
+      box.disabled = false;
+      box.checked = box.dataset.prev === '1';
+    }
+  });
+}
+// Registered before the auto save listeners so the saved values already follow the rule.
+$('defaultRows').addEventListener('change', ev => {
+  const base = ev.target.matches('[data-currency]') && ev.target.closest('tr').querySelector('[data-base]');
+  if (base) base.hidden = ev.target.value !== '%';
+});
+['familyRows', 'defaultRows', 'otherDefaultRows'].forEach(id => $(id).addEventListener('change', ev => {
+  const tr = ev.target.closest('tr');
+  if (tr && [detailsBox(tr), tr.querySelector('[data-flag="showInHistoryDetails"]')].includes(ev.target)) applyDetailsRule(tr);
+}));
 
 function fillDefaults(s) {
   $('familyRows').innerHTML = s.family.map(familyRow).join('');
   $('defaultRows').innerHTML = s.defaultRows.map(defaultRow).join('');
   $('otherDefaultRows').innerHTML = s.otherDefaults.map(otherDefaultRow).join('');
+  document.querySelectorAll('#familyRows tr, #defaultRows tr, #otherDefaultRows tr').forEach(applyDetailsRule);
+  syncAllBoxes();
 }
+
+// Header boxes mirror their column: checked when all rows are, indeterminate when only some are. Locked boxes are skipped.
+const COLUMN_BOXES = {
+  newOnly: '[data-new-only]',
+  salary: '[data-show-salary], [data-flag="showInSalary"]',
+  salaryFooter: '[data-flag="showInSalaryFooter"]',
+  historyDetails: '[data-flag="showInHistoryDetails"]',
+  dropdown: '[data-flag="showInDropdown"]',
+  history: '[data-show-history], [data-flag="showInHistory"]',
+  blocks: '[data-flag="showInBlocks"]',
+  footer: '[data-flag="showInFooter"]',
+  total: '[data-total], [data-flag="includeInTotal"]'
+};
+const columnBoxes = header => [...header.closest('table').querySelectorAll('tbody')]
+  .flatMap(body => [...body.querySelectorAll(COLUMN_BOXES[header.dataset.col])]).filter(box => !box.disabled);
+function syncAllBoxes() {
+  [['includeAll', ['familyRows']], ['calculateAll', ['defaultRows', 'otherDefaultRows']]].forEach(([id, bodies]) => {
+    const boxes = bodies.flatMap(body => [...$(body).querySelectorAll('[data-enabled]')]);
+    const on = boxes.filter(box => box.checked).length;
+    $(id).checked = boxes.length > 0 && on === boxes.length;
+    $(id).indeterminate = on > 0 && on < boxes.length;
+  });
+  document.querySelectorAll('[data-col]').forEach(header => {
+    const boxes = columnBoxes(header);
+    const on = boxes.filter(box => box.checked).length;
+    header.disabled = boxes.length === 0;
+    header.checked = boxes.length > 0 && on === boxes.length;
+    header.indeterminate = on > 0 && on < boxes.length;
+  });
+}
+document.querySelectorAll('[data-col]').forEach(header => header.addEventListener('change', () => {
+  columnBoxes(header).forEach(box => { box.checked = header.checked; });
+  const table = header.closest('table');
+  table.querySelectorAll('tbody tr').forEach(applyDetailsRule);
+  table.querySelector('tbody').dispatchEvent(new Event('change', { bubbles: true }));
+}));
+// Hover help for every column header of both tables.
+const COLUMN_TIPS = {
+  includeAll: 'Include this person in the calculation and on the pages. Unticked, they are hidden everywhere and their other checkboxes are locked.',
+  calculateAll: 'Include this row in the calculation and on the pages. Unticked, it is hidden everywhere and its other checkboxes are locked.',
+  newOnly: 'Apply this row\'s Include, amount and currency only to salaries you add from now on; salary months you already have stay as they are.',
+  Person: 'Name of the family member.',
+  'Monthly item': 'Name of the monthly item.',
+  Currency: 'Currency of the amount: USD, UAH, EUR, or % of the month\'s salary.',
+  'Monthly amount': 'Amount set aside for this person on every new salary line, in the chosen currency.',
+  'Default amount / rate': 'Amount (or percentage for a % row) copied into every new salary line.',
+  salary: 'Show this row as a column in the My salary table.',
+  salaryFooter: 'Show this column\'s sum in the Total row under the My salary table.',
+  historyDetails: 'List this row in each month\'s Income/Spending details on Family Savings.',
+  dropdown: 'Offer this row in the Who list when adding an income or spending line on Family Savings.',
+  history: 'Show this row as a column in the Family Savings History table (needs History details).',
+  blocks: 'Show a summary block for this row at the top of Family Savings.',
+  footer: 'Show this column\'s sum in the Total row under the History table on Family Savings.',
+  total: 'Add this column to each month\'s Total on Family Savings (needs History table).'
+};
+document.querySelectorAll('.family-table thead th').forEach(th => {
+  const key = th.querySelector('[data-col]')?.dataset.col || th.querySelector('input[id]')?.id || th.textContent.trim();
+  if (COLUMN_TIPS[key]) th.title = COLUMN_TIPS[key];
+});
+
 fillDefaults(AppSettings.load());
 GitSync.ready().then(() => fillDefaults(AppSettings.load()));
 
 function defStatus(text, ok) {
   const s = $('defStatus');
+  s.textContent = text;
+  s.className = ok ? 'ok' : 'err';
+}
+
+function familyStatus(text, ok) {
+  const s = $('familyStatus');
   s.textContent = text;
   s.className = ok ? 'ok' : 'err';
 }
@@ -264,7 +453,7 @@ $('addFamilyMember').addEventListener('click', () => {
 });
 
 $('familyRows').addEventListener('click', ev => {
-  if (ev.target.closest('[data-remove]')) ev.target.closest('tr').remove();
+  if (ev.target.closest('[data-remove]')) { ev.target.closest('tr').remove(); autoSaveFamily(); }
 });
 
 $('addOtherDefault').addEventListener('click', () => {
@@ -274,30 +463,33 @@ $('addOtherDefault').addEventListener('click', () => {
 });
 
 $('defaultRows').addEventListener('click', ev => {
-  if (ev.target.closest('[data-remove]')) ev.target.closest('tr').remove();
+  if (ev.target.closest('[data-remove]')) { ev.target.closest('tr').remove(); autoSaveDefaults(); }
 });
 
 $('otherDefaultRows').addEventListener('click', ev => {
-  if (ev.target.closest('[data-remove]')) ev.target.closest('tr').remove();
+  if (ev.target.closest('[data-remove]')) { ev.target.closest('tr').remove(); autoSaveDefaults(); }
 });
 
-$('saveFamily').addEventListener('click', () => {
+function saveFamily() {
   const rows = [...$('familyRows').querySelectorAll('tr')];
-  if (rows.some(row => !row.querySelector('[data-name]').value.trim())) return defStatus('Enter a name for each person.', false);
+  if (rows.some(row => !row.querySelector('[data-name]').value.trim())) return familyStatus('Enter a name for each person.', false);
   const values = {
     ...AppSettings.load(),
     family: rows.map(row => ({
       id: row.dataset.id,
       name: row.querySelector('[data-name]').value.trim(),
       enabled: row.querySelector('[data-enabled]').checked,
-      monthlyAmount: row.querySelector('[data-amount]').value
+      monthlyAmount: row.querySelector('[data-amount]').value,
+      currency: row.querySelector('[data-currency]').value,
+      ...Object.fromEntries(FAMILY_VIEW_FLAGS.map(([flag]) => [flag, row.querySelector(`[data-flag="${flag}"]`).checked]))
     }))
   };
   AppSettings.save(values);
-  defStatus('Family setup saved in this browser. Save data to GitHub to include it in the encrypted backup.', true);
-});
+  familyStatus('Family setup saved in this browser. Save data to GitHub to include it in the encrypted backup.', true);
+}
 
-$('saveDefaults').addEventListener('click', () => {
+// Auto save skips re-rendering so focus stays where the user moved it.
+function saveDefaults(rerender = true) {
   const rows = [...$('otherDefaultRows').querySelectorAll('tr')];
   const defaultRows = [...$('defaultRows').querySelectorAll('tr')];
   if ([...rows, ...defaultRows].some(row => !row.querySelector('[data-name]').value.trim())) return defStatus('Enter a name for each monthly item.', false);
@@ -306,11 +498,19 @@ $('saveDefaults').addEventListener('click', () => {
     defaultRows: defaultRows.map(row => ({
       id: row.dataset.id,
       name: row.querySelector('[data-name]').value.trim(),
+      currency: row.querySelector('[data-currency]')?.value || (row.dataset.id === 'other' ? 'USD' : '%'),
+      ...(row.querySelector('[data-base]') ? { base: row.querySelector('[data-base]').value } : {}),
       enabled: row.querySelector('[data-enabled]').checked,
       amount: row.querySelector('[data-amount]').value,
       showInSalary: row.querySelector('[data-show-salary]').checked,
+      showInSalaryFooter: row.querySelector('[data-flag="showInSalaryFooter"]').checked,
       showInHistory: row.querySelector('[data-show-history]').checked,
-      includeInTotal: row.querySelector('[data-total]').checked
+      showInHistoryDetails: row.querySelector('[data-flag="showInHistoryDetails"]').checked,
+      showInDropdown: row.querySelector('[data-flag="showInDropdown"]').checked,
+      showInBlocks: row.querySelector('[data-flag="showInBlocks"]').checked,
+      showInFooter: row.querySelector('[data-flag="showInFooter"]').checked,
+      includeInTotal: row.querySelector('[data-total]').checked,
+      newSalariesOnly: row.querySelector('[data-new-only]').checked
     })),
     otherDefaults: rows.map(row => ({
       id: row.dataset.id,
@@ -319,13 +519,55 @@ $('saveDefaults').addEventListener('click', () => {
       amount: row.querySelector('[data-amount]').value,
       enabled: row.querySelector('[data-enabled]').checked,
       showInSalary: row.querySelector('[data-show-salary]').checked,
+      showInSalaryFooter: row.querySelector('[data-flag="showInSalaryFooter"]').checked,
       showInHistory: row.querySelector('[data-show-history]').checked,
-      includeInTotal: row.querySelector('[data-total]').checked
+      showInHistoryDetails: row.querySelector('[data-flag="showInHistoryDetails"]').checked,
+      showInDropdown: row.querySelector('[data-flag="showInDropdown"]').checked,
+      showInBlocks: row.querySelector('[data-flag="showInBlocks"]').checked,
+      showInFooter: row.querySelector('[data-flag="showInFooter"]').checked,
+      includeInTotal: row.querySelector('[data-total]').checked,
+      newSalariesOnly: row.querySelector('[data-new-only]').checked
     }))
   };
-  fillDefaults(AppSettings.save(values));
+  const saved = AppSettings.save(values);
+  if (rerender) fillDefaults(saved);
   defStatus('Other defaults saved in this browser. Save data to GitHub to include them in the encrypted backup.', true);
+}
+
+$('saveFamily').addEventListener('click', saveFamily);
+$('saveDefaults').addEventListener('click', () => saveDefaults());
+
+const AUTO_SAVE_KEY = 'configAutoSave';
+const autoBoxes = [$('autoSaveFamily'), $('autoSaveDefaults')];
+autoBoxes.forEach(box => {
+  box.checked = localStorage.getItem(AUTO_SAVE_KEY) === '1';
+  box.addEventListener('change', () => {
+    autoBoxes.forEach(other => { other.checked = box.checked; });
+    localStorage.setItem(AUTO_SAVE_KEY, box.checked ? '1' : '0');
+  });
 });
+function autoSaveFamily() { if ($('autoSaveFamily').checked) saveFamily(); }
+function autoSaveDefaults() { if ($('autoSaveDefaults').checked) saveDefaults(false); }
+$('familyRows').addEventListener('change', autoSaveFamily);
+$('defaultRows').addEventListener('change', autoSaveDefaults);
+$('otherDefaultRows').addEventListener('change', autoSaveDefaults);
+
+$('includeAll').addEventListener('change', ev => {
+  $('familyRows').querySelectorAll('[data-enabled]').forEach(box => { box.checked = ev.target.checked; });
+  $('familyRows').querySelectorAll('tr').forEach(applyDetailsRule);
+  $('familyRows').dispatchEvent(new Event('change', { bubbles: true }));
+});
+$('calculateAll').addEventListener('change', ev => {
+  document.querySelectorAll('#defaultRows [data-enabled], #otherDefaultRows [data-enabled]').forEach(box => { box.checked = ev.target.checked; });
+  document.querySelectorAll('#defaultRows tr, #otherDefaultRows tr').forEach(applyDetailsRule);
+  $('defaultRows').dispatchEvent(new Event('change', { bubbles: true }));
+});
+// Runs after the row handlers above, so removed or added rows are already in place.
+['click', 'change'].forEach(type => document.addEventListener(type, ev => {
+  // Syncing during a header box's own click would undo the click before its change event fires.
+  if (ev.type === 'click' && ev.target.matches('#includeAll, #calculateAll, [data-col]')) return;
+  syncAllBoxes();
+}));
 
 $('resetDefaults').addEventListener('click', () => {
   const settings = AppSettings.load();
