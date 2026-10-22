@@ -102,10 +102,10 @@
 
   <div class="card" id="panelFamily" role="tabpanel" aria-labelledby="tabFamily" tabindex="0">
     <h2>Family setup</h2>
-    <p class="note">Select the people to include and set the amount saved for each on every new salary line. The checkboxes choose where each person appears: Salary table columns, History table columns, History details (each month's Income/Spending list on Family Savings), the Totals blocks on Family Savings, the Salary footer and History total rows and the History Total column. Unticking Include hides the person everywhere and locks their other checkboxes. Drag a row by its handle (or focus the handle and press the up or down arrow) to change the order, then save.</p>
+    <p class="note">Select the people to include and set the amount saved for each on every new salary line. "New salaries only" keeps a person's Include and currency as they are in the salary months you already have, so a change here only affects salaries you add afterwards. The checkboxes choose where each person appears: Salary table columns, History table columns, History details (each month's Income/Spending list on Family Savings), the Totals blocks on Family Savings, the Salary footer and History total rows and the History Total column. Unticking Include hides the person everywhere and locks their other checkboxes. Drag a row by its handle (or focus the handle and press the up or down arrow) to change the order, then save.</p>
     <div class="family-scroll">
       <table class="family-table">
-        <thead><tr><th></th><th><label><input type="checkbox" id="includeAll"> Include</label></th><th></th><th>Person</th><th>Currency</th><th>Monthly amount</th><th><label><input type="checkbox" data-col="salary"> Salary table</label></th><th><label><input type="checkbox" data-col="salaryFooter"> Salary footer</label></th><th><label><input type="checkbox" data-col="historyDetails"> History details</label></th><th><label><input type="checkbox" data-col="dropdown"> Add to dropdown</label></th><th><label><input type="checkbox" data-col="history"> History table</label></th><th><label><input type="checkbox" data-col="blocks"> Totals block</label></th><th><label><input type="checkbox" data-col="footer"> History total</label></th><th><label><input type="checkbox" data-col="total"> Include in Total</label></th><th></th></tr></thead>
+        <thead><tr><th></th><th><label><input type="checkbox" id="includeAll"> Include</label></th><th><label><input type="checkbox" data-col="newOnly"> New salaries only</label></th><th>Person</th><th>Currency</th><th>Monthly amount</th><th><label><input type="checkbox" data-col="salary"> Salary table</label></th><th><label><input type="checkbox" data-col="salaryFooter"> Salary footer</label></th><th><label><input type="checkbox" data-col="historyDetails"> History details</label></th><th><label><input type="checkbox" data-col="dropdown"> Add to dropdown</label></th><th><label><input type="checkbox" data-col="history"> History table</label></th><th><label><input type="checkbox" data-col="blocks"> Totals block</label></th><th><label><input type="checkbox" data-col="footer"> History total</label></th><th><label><input type="checkbox" data-col="total"> Include in Total</label></th><th></th></tr></thead>
         <tbody id="familyRows"></tbody>
       </table>
     </div>
@@ -225,7 +225,7 @@ function familyRow(person) {
   return `<tr data-id="${esc(person.id)}">
     ${dragCell}
     <td><input type="checkbox" data-enabled aria-label="Include ${esc(person.name)}" ${person.enabled ? 'checked' : ''}></td>
-    <td></td>
+    <td><input type="checkbox" data-new-only aria-label="Include ${esc(person.name)} only in new salaries" ${person.newSalariesOnly ? 'checked' : ''}></td>
     <th scope="row"><input type="text" data-name value="${esc(person.name)}" required aria-label="Person name"></th>
     <td><select data-currency aria-label="${esc(person.name)} currency">${Savings.CURRENCIES.map(code => `<option value="${code}" ${(person.currency || 'USD') === code ? 'selected' : ''}>${code}</option>`).join('')}</select></td>
     <td><input type="number" data-amount min="0" step="0.01" value="${person.monthlyAmount}" aria-label="Monthly amount"></td>
@@ -481,6 +481,7 @@ function saveFamily() {
       enabled: row.querySelector('[data-enabled]').checked,
       monthlyAmount: row.querySelector('[data-amount]').value,
       currency: row.querySelector('[data-currency]').value,
+      newSalariesOnly: row.querySelector('[data-new-only]').checked,
       ...Object.fromEntries(FAMILY_VIEW_FLAGS.map(([flag]) => [flag, row.querySelector(`[data-flag="${flag}"]`).checked]))
     }))
   };
