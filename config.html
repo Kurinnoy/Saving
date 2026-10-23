@@ -41,7 +41,9 @@
   #familyStatus.ok { display: block; background: #e3f6e8; color: #1a7a35; }
   #familyStatus.err { display: block; background: #fde4e4; color: #b00020; }
   .tools .toggle { margin-top: 0; }
-  .family-scroll { overflow-x: auto; margin: 12px 0; }
+  .family-scroll { overflow: auto; max-height: 70vh; margin: 12px 0; }
+  .family-table thead { position: sticky; top: 0; z-index: 2; }
+  .family-table thead th { background: #fff; box-shadow: inset 0 -1px #e3e3e3; }
   .family-table { width: 100%; border-collapse: collapse; }
   .family-table th, .family-table td { padding: 8px; border-bottom: 1px solid #e3e3e3; text-align: left; }
   .family-table input[type=checkbox] { width: auto; }
@@ -105,7 +107,7 @@
     <p class="note">Select the people to include and set the amount saved for each on every new salary line. "New salaries only" keeps a person's Include and currency as they are in the salary months you already have, so a change here only affects salaries you add afterwards. The checkboxes choose where each person appears: Salary table columns, History table columns, History details (each month's Income/Spending list on Family Savings), the Totals blocks on Family Savings, the Salary footer and History total rows and the History Total column. Unticking Include hides the person everywhere and locks their other checkboxes. Drag a row by its handle (or focus the handle and press the up or down arrow) to change the order, then save.</p>
     <div class="family-scroll">
       <table class="family-table">
-        <thead><tr><th></th><th><label><input type="checkbox" id="includeAll"> Include</label></th><th><label><input type="checkbox" data-col="newOnly"> New salaries only</label></th><th>Person</th><th>Currency</th><th>Monthly amount</th><th><label><input type="checkbox" data-col="salary"> Salary table</label></th><th><label><input type="checkbox" data-col="salaryFooter"> Salary footer</label></th><th><label><input type="checkbox" data-col="historyDetails"> History details</label></th><th><label><input type="checkbox" data-col="dropdown"> Add to dropdown</label></th><th><label><input type="checkbox" data-col="history"> History table</label></th><th><label><input type="checkbox" data-col="income"> Show income</label></th><th><label><input type="checkbox" data-col="blocks"> Totals block</label></th><th><label><input type="checkbox" data-col="footer"> History total</label></th><th><label><input type="checkbox" data-col="total"> Include in Total</label></th><th></th></tr></thead>
+        <thead><tr><th></th><th><label><input type="checkbox" id="includeAll"> Include</label></th><th><label><input type="checkbox" data-col="newOnly"> New salaries only</label></th><th>Person</th><th>Currency</th><th>Monthly amount</th><th><label><input type="checkbox" data-col="salary"> Salary table</label></th><th><label><input type="checkbox" data-col="salaryFooter"> Salary footer</label></th><th><label><input type="checkbox" data-col="historyDetails"> History details</label></th><th><label><input type="checkbox" data-col="dropdown"> Add to dropdown</label></th><th><label><input type="checkbox" data-col="history"> History table</label></th><th><label><input type="checkbox" data-col="income"> Show income</label></th><th><label><input type="checkbox" data-col="blocks"> Totals block</label></th><th><label><input type="checkbox" data-col="blocksTotal"> Blocks total</label></th><th><label><input type="checkbox" data-col="footer"> History total</label></th><th><label><input type="checkbox" data-col="total"> Include in Total</label></th><th></th></tr></thead>
         <tbody id="familyRows"></tbody>
       </table>
     </div>
@@ -123,7 +125,7 @@
     <form id="defaultsForm" autocomplete="off">
       <div class="family-scroll">
         <table class="family-table">
-            <thead><tr><th></th><th><label><input type="checkbox" id="calculateAll"> Include</label></th><th><label><input type="checkbox" data-col="newOnly"> New salaries only</label></th><th>Monthly item</th><th>Currency</th><th>Default amount / rate</th><th><label><input type="checkbox" data-col="salary"> Salary table</label></th><th><label><input type="checkbox" data-col="salaryFooter"> Salary footer</label></th><th><label><input type="checkbox" data-col="historyDetails"> History details</label></th><th><label><input type="checkbox" data-col="dropdown"> Add to dropdown</label></th><th><label><input type="checkbox" data-col="history"> History table</label></th><th><label><input type="checkbox" data-col="income"> Show income</label></th><th><label><input type="checkbox" data-col="blocks"> Totals block</label></th><th><label><input type="checkbox" data-col="footer"> History total</label></th><th><label><input type="checkbox" data-col="total"> Include in Total</label></th><th></th></tr></thead>
+            <thead><tr><th></th><th><label><input type="checkbox" id="calculateAll"> Include</label></th><th><label><input type="checkbox" data-col="newOnly"> New salaries only</label></th><th>Monthly item</th><th>Currency</th><th>Default amount / rate</th><th><label><input type="checkbox" data-col="salary"> Salary table</label></th><th><label><input type="checkbox" data-col="salaryFooter"> Salary footer</label></th><th><label><input type="checkbox" data-col="historyDetails"> History details</label></th><th><label><input type="checkbox" data-col="dropdown"> Add to dropdown</label></th><th><label><input type="checkbox" data-col="history"> History table</label></th><th><label><input type="checkbox" data-col="income"> Show income</label></th><th><label><input type="checkbox" data-col="blocks"> Totals block</label></th><th><label><input type="checkbox" data-col="blocksTotal"> Blocks total</label></th><th><label><input type="checkbox" data-col="footer"> History total</label></th><th><label><input type="checkbox" data-col="total"> Include in Total</label></th><th></th></tr></thead>
             <tbody id="defaultRows"></tbody>
           <tbody id="otherDefaultRows"></tbody>
         </table>
@@ -219,7 +221,7 @@ $('form').addEventListener('submit', ev => ev.preventDefault());
 
 const dragCell = '<td><button type="button" class="drag-handle" data-drag aria-label="Move row" title="Drag to reorder">&#8942;&#8942;</button></td>';
 const flagBox = (flag, name, label, checked) => `<td><input type="checkbox" data-flag="${flag}" aria-label="${esc(label)}: ${esc(name)}" ${checked ? 'checked' : ''}></td>`;
-const FAMILY_VIEW_FLAGS = [['showInSalary', 'Show in Salary table'], ['showInSalaryFooter', 'Show in Salary footer total'], ['showInHistoryDetails', 'Show in History details'], ['showInDropdown', 'Add to Who dropdown'], ['showInHistory', 'Show in History table'], ['showIncome', 'Show income in History table'], ['showInBlocks', 'Show in Totals block'], ['showInFooter', 'Show in History total'], ['includeInTotal', 'Include in History Total']];
+const FAMILY_VIEW_FLAGS = [['showInSalary', 'Show in Salary table'], ['showInSalaryFooter', 'Show in Salary footer total'], ['showInHistoryDetails', 'Show in History details'], ['showInDropdown', 'Add to Who dropdown'], ['showInHistory', 'Show in History table'], ['showIncome', 'Show income in History table'], ['showInBlocks', 'Show in Totals block'], ['inBlocksTotal', 'Add to Blocks total'], ['showInFooter', 'Show in History total'], ['includeInTotal', 'Include in History Total']];
 
 function familyRow(person) {
   return `<tr data-id="${esc(person.id)}">
@@ -229,7 +231,7 @@ function familyRow(person) {
     <th scope="row"><input type="text" data-name value="${esc(person.name)}" required aria-label="Person name"></th>
     <td><select data-currency aria-label="${esc(person.name)} currency">${Savings.CURRENCIES.map(code => `<option value="${code}" ${(person.currency || 'USD') === code ? 'selected' : ''}>${code}</option>`).join('')}</select></td>
     <td><input type="number" data-amount min="0" step="0.01" value="${person.monthlyAmount}" aria-label="Monthly amount"></td>
-    ${FAMILY_VIEW_FLAGS.map(([flag, label]) => flagBox(flag, person.name, label, flag === 'showIncome' ? person[flag] === true : person[flag] !== false)).join('')}
+    ${FAMILY_VIEW_FLAGS.map(([flag, label]) => flagBox(flag, person.name, label, flag === 'showIncome' || flag === 'inBlocksTotal' ? person[flag] === true : person[flag] !== false)).join('')}
     <td><button type="button" class="remove" data-remove aria-label="Remove ${esc(person.name)}">Remove</button></td>
   </tr>`;
 }
@@ -257,6 +259,7 @@ function defaultRow(row) {
     <td><input type="checkbox" data-show-history aria-label="Show ${esc(row.name)} in History table" ${row.showInHistory ? 'checked' : ''}></td>
     ${flagBox('showIncome', row.name, 'Show income in History table', row.showIncome === true)}
     ${flagBox('showInBlocks', row.name, 'Show in Totals block', row.showInBlocks)}
+    ${flagBox('inBlocksTotal', row.name, 'Add to Blocks total', row.inBlocksTotal === true)}
     ${flagBox('showInFooter', row.name, 'Show in History total', row.showInFooter !== false)}
     <td><input type="checkbox" data-total aria-label="Include ${esc(row.name)} in History Total" ${row.includeInTotal ? 'checked' : ''}></td>
     <td><button type="button" class="remove" data-remove aria-label="Remove ${esc(row.name)}">Remove</button></td>
@@ -278,6 +281,7 @@ function otherDefaultRow(item) {
     <td><input type="checkbox" data-show-history aria-label="Show ${esc(item.name)} in History table" ${item.showInHistory === true ? 'checked' : ''}></td>
     ${flagBox('showIncome', item.name, 'Show income in History table', item.showIncome === true)}
     ${flagBox('showInBlocks', item.name, 'Show in Totals block', item.showInBlocks === true)}
+    ${flagBox('inBlocksTotal', item.name, 'Add to Blocks total', item.inBlocksTotal === true)}
     ${flagBox('showInFooter', item.name, 'Show in History total', item.showInFooter !== false)}
     <td><input type="checkbox" data-total aria-label="Include ${esc(item.name)} in History Total" ${item.includeInTotal === true ? 'checked' : ''}></td>
     <td><button type="button" class="remove" data-remove aria-label="Remove ${esc(item.name)}">Remove</button></td>
@@ -341,10 +345,11 @@ function applyDetailsRule(tr) {
   const details = detailsBox(tr);
   if (!details) return;
   const historyDetails = tr.querySelector('[data-flag="showInHistoryDetails"]');
+  const blocks = tr.querySelector('[data-flag="showInBlocks"]');
   [...tr.querySelectorAll('[data-show-salary], [data-show-history], [data-total], [data-flag]')].filter(box => box !== details).forEach(box => {
     // The History table box also needs History details.
     const needsHistoryDetails = box.matches('[data-show-history], [data-flag="showInHistory"], [data-flag="showIncome"]');
-    if (!details.checked || (needsHistoryDetails && !historyDetails.checked)) {
+    if (!details.checked || (needsHistoryDetails && !historyDetails.checked) || (box.matches('[data-flag="inBlocksTotal"]') && !blocks.checked)) {
       if (!box.disabled) box.dataset.prev = box.checked ? '1' : '0';
       box.checked = false;
       box.disabled = true;
@@ -361,7 +366,7 @@ $('defaultRows').addEventListener('change', ev => {
 });
 ['familyRows', 'defaultRows', 'otherDefaultRows'].forEach(id => $(id).addEventListener('change', ev => {
   const tr = ev.target.closest('tr');
-  if (tr && [detailsBox(tr), tr.querySelector('[data-flag="showInHistoryDetails"]')].includes(ev.target)) applyDetailsRule(tr);
+  if (tr && [detailsBox(tr), tr.querySelector('[data-flag="showInHistoryDetails"]'), tr.querySelector('[data-flag="showInBlocks"]')].includes(ev.target)) applyDetailsRule(tr);
 }));
 
 function fillDefaults(s) {
@@ -382,6 +387,7 @@ const COLUMN_BOXES = {
   history: '[data-show-history], [data-flag="showInHistory"]',
   income: '[data-flag="showIncome"]',
   blocks: '[data-flag="showInBlocks"]',
+  blocksTotal: '[data-flag="inBlocksTotal"]',
   footer: '[data-flag="showInFooter"]',
   total: '[data-total], [data-flag="includeInTotal"]'
 };
@@ -425,6 +431,7 @@ const COLUMN_TIPS = {
   history: 'Show this row as a column in the Family Savings History table (needs History details).',
   income: 'List this row\'s My salary income in each month\'s Income/Spending details on Family Savings (needs History details). Hidden by default.',
   blocks: 'Show a summary block for this row at the top of Family Savings.',
+  blocksTotal: 'Add this block to the last Total block on Family Savings (needs Totals block).',
   footer: 'Show this column\'s sum in the Total row under the History table on Family Savings.',
   total: 'Add this column to each month\'s Total on Family Savings (needs History table).'
 };
@@ -514,6 +521,7 @@ function saveDefaults(rerender = true) {
       showInDropdown: row.querySelector('[data-flag="showInDropdown"]').checked,
       showIncome: row.querySelector('[data-flag="showIncome"]').checked,
       showInBlocks: row.querySelector('[data-flag="showInBlocks"]').checked,
+      inBlocksTotal: row.querySelector('[data-flag="inBlocksTotal"]').checked,
       showInFooter: row.querySelector('[data-flag="showInFooter"]').checked,
       includeInTotal: row.querySelector('[data-total]').checked,
       newSalariesOnly: row.querySelector('[data-new-only]').checked
@@ -531,6 +539,7 @@ function saveDefaults(rerender = true) {
       showInDropdown: row.querySelector('[data-flag="showInDropdown"]').checked,
       showIncome: row.querySelector('[data-flag="showIncome"]').checked,
       showInBlocks: row.querySelector('[data-flag="showInBlocks"]').checked,
+      inBlocksTotal: row.querySelector('[data-flag="inBlocksTotal"]').checked,
       showInFooter: row.querySelector('[data-flag="showInFooter"]').checked,
       includeInTotal: row.querySelector('[data-total]').checked,
       newSalariesOnly: row.querySelector('[data-new-only]').checked

@@ -448,6 +448,7 @@ const Savings = (() => {
           ...(CURRENCIES.includes(member.currency) && member.currency !== 'USD' ? { currency: member.currency } : {}),
           ...(member.newSalariesOnly === true ? { newSalariesOnly: true } : {}),
           ...(member.showIncome === true ? { showIncome: true } : {}),
+          ...(member.inBlocksTotal === true ? { inBlocksTotal: true } : {}),
           ...Object.fromEntries(FAMILY_FLAGS.map(flag => [flag, flag === 'showInSalaryFooter' && typeof member[flag] !== 'boolean' ? member.showInFooter !== false : member[flag] !== false]))
         };
       }).filter(Boolean)
@@ -478,6 +479,7 @@ const Savings = (() => {
           showInFooter: row.showInFooter !== false,
           includeInTotal: row.includeInTotal === true,
           ...(row.showIncome === true ? { showIncome: true } : {}),
+          ...(row.inBlocksTotal === true ? { inBlocksTotal: true } : {}),
           ...(row.newSalariesOnly === true ? { newSalariesOnly: true } : {})
         };
       }).filter(Boolean)
@@ -504,6 +506,7 @@ const Savings = (() => {
         showInSalaryFooter: typeof item.showInSalaryFooter === 'boolean' ? item.showInSalaryFooter : item.showInFooter !== false,
         showInHistory: item.showInHistory === true, showInHistoryDetails: typeof item.showInHistoryDetails === 'boolean' ? item.showInHistoryDetails : item.showInHistory === true, showInDropdown: item.showInDropdown === true, showInBlocks: item.showInBlocks === true, showInFooter: item.showInFooter !== false, includeInTotal: item.includeInTotal === true,
         ...(item.showIncome === true ? { showIncome: true } : {}),
+        ...(item.inBlocksTotal === true ? { inBlocksTotal: true } : {}),
         ...(item.newSalariesOnly === true ? { newSalariesOnly: true } : {}) };
     }).filter(Boolean) : [];
     return {
@@ -613,6 +616,7 @@ const Savings = (() => {
       && (row.showInFooter === undefined || typeof row.showInFooter === 'boolean')
       && (row.showInSalaryFooter === undefined || typeof row.showInSalaryFooter === 'boolean')
       && (row.showIncome === undefined || typeof row.showIncome === 'boolean')
+      && (row.inBlocksTotal === undefined || typeof row.inBlocksTotal === 'boolean')
       && typeof row.includeInTotal === 'boolean';
   };
   const isValidMonthlyDefault = item => item && /^default_[\w-]+$/.test(item.id) && typeof item.name === 'string'
@@ -626,6 +630,7 @@ const Savings = (() => {
     && (item.showInFooter === undefined || typeof item.showInFooter === 'boolean')
     && (item.showInSalaryFooter === undefined || typeof item.showInSalaryFooter === 'boolean')
     && (item.showIncome === undefined || typeof item.showIncome === 'boolean')
+    && (item.inBlocksTotal === undefined || typeof item.inBlocksTotal === 'boolean')
     && (item.showInHistory === undefined || typeof item.showInHistory === 'boolean')
     && (item.includeInTotal === undefined || typeof item.includeInTotal === 'boolean');
 
@@ -648,6 +653,7 @@ const Savings = (() => {
       && (person.currency === undefined || CURRENCIES.includes(person.currency))
       && (person.newSalariesOnly === undefined || typeof person.newSalariesOnly === 'boolean')
       && (person.showIncome === undefined || typeof person.showIncome === 'boolean')
+      && (person.inBlocksTotal === undefined || typeof person.inBlocksTotal === 'boolean')
       && FAMILY_FLAGS.every(flag => person[flag] === undefined || typeof person[flag] === 'boolean'))
     && Number.isFinite(s.monthlySaving) && s.monthlySaving >= 0
     && Number.isFinite(s.monthlyInvestment) && s.monthlyInvestment >= 0

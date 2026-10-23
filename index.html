@@ -129,7 +129,7 @@ function refreshFamily() {
   tenthInFooter = !!(tenthRow && shown(tenthRow, 'showInFooter'));
   historyDefaultRows = settings.defaultRows.filter(row => inDetails(row) && row.showInHistory && row.showInHistoryDetails !== false && row.id !== 'rate_10');
   historyOtherRows = settings.otherDefaults.filter(row => inDetails(row) && row.showInHistory && row.showInHistoryDetails !== false);
-  blockRows = [...settings.defaultRows.filter(row => row.id !== 'rate_10'), ...settings.otherDefaults].filter(row => inDetails(row) && row.enabled !== false && row.showInBlocks);
+  blockRows = [...settings.defaultRows, ...settings.otherDefaults].filter(row => inDetails(row) && row.showInBlocks);
   detailRows = [...settings.defaultRows, ...settings.otherDefaults].filter(row => row.id !== 'other' && inDetails(row) && row.enabled !== false && row.showInHistoryDetails);
   const allRows = [...settings.defaultRows, ...settings.otherDefaults];
   allRows.forEach(row => { LABELS[whoOfRow(row)] = row.id === 'rate_10' ? '10%' : row.name; });
@@ -256,14 +256,16 @@ function render() {
     return `<th class="sortable" data-key="${esc(key)}">${esc(label)}${arrow}</th>`;
   }).join('') + '<th></th>';
 
-  const blockCard = row => {
-    const value = data.reduce((s, e) => s + (row.id === 'monthly_saving' ? savingShown(e) : row.id === 'monthly_investment' ? investmentShown(e) : defaultRowValue(e, row)), 0);
-    return `<div class="total"><span>${esc(row.name)}</span><strong>${money(value)}</strong></div>`;
-  };
-  $('totals').innerHTML =
-    blockRows.map(blockCard).join('') +
-    blockPeople.map(person => `<div class="total"><span>${esc(person.name)} money</span><strong>${money(left(person.id))}</strong>${small(person.id)}</div>`).join('') +
-    (tenthInBlocks ? `<div class="total"><span>10% money</span><strong>${money(left('tenth'))}</strong>${small('tenth')}</div>` : '');
+  // Same order as Config: family first, then the monthly rows (the 10% money sits where its row is).
+  const blocks = [
+    ...blockPeople.map(person => ({ label: `${person.name} money`, value: left(person.id), extra: small(person.id), inTotal: person.inBlocksTotal === true })),
+    ...blockRows.map(row => row.id === 'rate_10'
+      ? { label: '10% money', value: left('tenth'), extra: small('tenth'), inTotal: row.inBlocksTotal === true }
+      : { label: row.name, value: data.reduce((s, e) => s + (row.id === 'monthly_saving' ? savingShown(e) : row.id === 'monthly_investment' ? investmentShown(e) : defaultRowValue(e, row)), 0), extra: '', inTotal: row.inBlocksTotal === true })
+  ];
+  const totalBlock = blocks.some(block => block.inTotal)
+    ? `<div class="total all"><span>Total</span><strong>${money(blocks.filter(block => block.inTotal).reduce((s, block) => s + block.value, 0))}</strong></div>` : '';
+  $('totals').innerHTML = blocks.map(block => `<div class="total"><span>${esc(block.label)}</span><strong>${money(block.value)}</strong>${block.extra}</div>`).join('') + totalBlock;
 
   $('rows').innerHTML = data.map(e => `
     <tr>
