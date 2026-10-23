@@ -125,7 +125,7 @@
     <form id="defaultsForm" autocomplete="off">
       <div class="family-scroll">
         <table class="family-table">
-            <thead><tr><th></th><th><label><input type="checkbox" id="calculateAll"> Include</label></th><th><label><input type="checkbox" data-col="newOnly"> New salaries only</label></th><th>Monthly item</th><th>Currency</th><th>Default amount / rate</th><th><label><input type="checkbox" data-col="salary"> Salary table</label></th><th><label><input type="checkbox" data-col="salaryFooter"> Salary footer</label></th><th><label><input type="checkbox" data-col="historyDetails"> History details</label></th><th><label><input type="checkbox" data-col="dropdown"> Add to dropdown</label></th><th><label><input type="checkbox" data-col="history"> History table</label></th><th><label><input type="checkbox" data-col="income"> Show income</label></th><th><label><input type="checkbox" data-col="blocks"> Totals block</label></th><th><label><input type="checkbox" data-col="blocksTotal"> Blocks total</label></th><th><label><input type="checkbox" data-col="footer"> History total</label></th><th><label><input type="checkbox" data-col="total"> Include in Total</label></th><th></th></tr></thead>
+            <thead><tr><th></th><th><label><input type="checkbox" id="calculateAll"> Include</label></th><th><label><input type="checkbox" data-col="newOnly"> New salaries only</label></th><th>Monthly item</th><th>Currency</th><th>Default amount / rate</th><th><label><input type="checkbox" data-col="salary"> Salary table</label></th><th><label><input type="checkbox" data-col="salaryFooter"> Salary footer</label></th><th><label><input type="checkbox" data-col="net"> Net salary</label></th><th><label><input type="checkbox" data-col="historyDetails"> History details</label></th><th><label><input type="checkbox" data-col="dropdown"> Add to dropdown</label></th><th><label><input type="checkbox" data-col="history"> History table</label></th><th><label><input type="checkbox" data-col="income"> Show income</label></th><th><label><input type="checkbox" data-col="blocks"> Totals block</label></th><th><label><input type="checkbox" data-col="blocksTotal"> Blocks total</label></th><th><label><input type="checkbox" data-col="footer"> History total</label></th><th><label><input type="checkbox" data-col="total"> Include in Total</label></th><th></th></tr></thead>
             <tbody id="defaultRows"></tbody>
           <tbody id="otherDefaultRows"></tbody>
         </table>
@@ -254,6 +254,7 @@ function defaultRow(row) {
     <td><input type="number" data-amount min="0" step="0.01" value="${row.amount}" ${isOther ? 'disabled' : ''} aria-label="${esc(row.name)} default amount or rate"></td>
     <td><input type="checkbox" data-show-salary aria-label="Show ${esc(row.name)} in Salary table" ${row.showInSalary ? 'checked' : ''}></td>
     ${flagBox('showInSalaryFooter', row.name, 'Show in Salary footer total', row.showInSalaryFooter !== false)}
+    ${flagBox('inNetSalary', row.name, 'Reduce Net salary', row.inNetSalary === true)}
     ${flagBox('showInHistoryDetails', row.name, 'Show in History details', row.showInHistoryDetails === true)}
     ${flagBox('showInDropdown', row.name, 'Add to Who dropdown', row.showInDropdown === true)}
     <td><input type="checkbox" data-show-history aria-label="Show ${esc(row.name)} in History table" ${row.showInHistory ? 'checked' : ''}></td>
@@ -276,6 +277,7 @@ function otherDefaultRow(item) {
     <td><input type="number" data-amount min="0" step="0.01" value="${item.amount}" aria-label="Default amount"></td>
     <td><input type="checkbox" data-show-salary aria-label="Show ${esc(item.name)} in Salary table" ${item.showInSalary === true ? 'checked' : ''}></td>
     ${flagBox('showInSalaryFooter', item.name, 'Show in Salary footer total', item.showInSalaryFooter !== false)}
+    ${flagBox('inNetSalary', item.name, 'Reduce Net salary', item.inNetSalary === true)}
     ${flagBox('showInHistoryDetails', item.name, 'Show in History details', item.showInHistoryDetails === true)}
     ${flagBox('showInDropdown', item.name, 'Add to Who dropdown', item.showInDropdown === true)}
     <td><input type="checkbox" data-show-history aria-label="Show ${esc(item.name)} in History table" ${item.showInHistory === true ? 'checked' : ''}></td>
@@ -382,6 +384,7 @@ const COLUMN_BOXES = {
   newOnly: '[data-new-only]',
   salary: '[data-show-salary], [data-flag="showInSalary"]',
   salaryFooter: '[data-flag="showInSalaryFooter"]',
+  net: '[data-flag="inNetSalary"]',
   historyDetails: '[data-flag="showInHistoryDetails"]',
   dropdown: '[data-flag="showInDropdown"]',
   history: '[data-show-history], [data-flag="showInHistory"]',
@@ -426,6 +429,7 @@ const COLUMN_TIPS = {
   'Default amount / rate': 'Amount (or percentage for a % row) copied into every new salary line.',
   salary: 'Show this row as a column in the My salary table.',
   salaryFooter: 'Show this column\'s sum in the Total row under the My salary table.',
+  net: 'Subtract this row from the Salary to get the Net salary column on My salary (1%, 5% and 10% by default).',
   historyDetails: 'List this row in each month\'s Income/Spending details on Family Savings.',
   dropdown: 'Offer this row in the Who list when adding an income or spending line on Family Savings.',
   history: 'Show this row as a column in the Family Savings History table (needs History details).',
@@ -516,6 +520,7 @@ function saveDefaults(rerender = true) {
       amount: row.querySelector('[data-amount]').value,
       showInSalary: row.querySelector('[data-show-salary]').checked,
       showInSalaryFooter: row.querySelector('[data-flag="showInSalaryFooter"]').checked,
+      inNetSalary: row.querySelector('[data-flag="inNetSalary"]').checked,
       showInHistory: row.querySelector('[data-show-history]').checked,
       showInHistoryDetails: row.querySelector('[data-flag="showInHistoryDetails"]').checked,
       showInDropdown: row.querySelector('[data-flag="showInDropdown"]').checked,
@@ -534,6 +539,7 @@ function saveDefaults(rerender = true) {
       enabled: row.querySelector('[data-enabled]').checked,
       showInSalary: row.querySelector('[data-show-salary]').checked,
       showInSalaryFooter: row.querySelector('[data-flag="showInSalaryFooter"]').checked,
+      inNetSalary: row.querySelector('[data-flag="inNetSalary"]').checked,
       showInHistory: row.querySelector('[data-show-history]').checked,
       showInHistoryDetails: row.querySelector('[data-flag="showInHistoryDetails"]').checked,
       showInDropdown: row.querySelector('[data-flag="showInDropdown"]').checked,

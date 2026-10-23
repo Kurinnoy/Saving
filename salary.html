@@ -67,7 +67,7 @@
       </div>
     </form>
     <div id="formError" role="alert"></div>
-    <p class="note">Saving a month that already exists is not allowed: use Edit on its line. Net salary is salary minus 1% and 5%; 10% is taken from the net salary.</p>
+    <p class="note">Saving a month that already exists is not allowed: use Edit on its line. Net salary is the salary minus the rows ticked "Net salary" in Config (1%, 5% and 10% by default).</p>
   </div>
 
   <div class="card">
@@ -98,7 +98,7 @@
 <script src="settings.js"></script>
 <script>
 const KEY = 'familySavings';
-const { fmt, esc, shiftMonth, copyEntry, remove, salaryOf, salaryTotal, salaryDateOf, defaultRowValue, currencyToUsd, netSalaryOf, withTenth, sortDesc, setSalary, MONTHLY_PAY_UAH, MONTHLY_PAY_LABELS, DEFAULT_ROWS, payOf, setMonthlyPay, setDefaultRows, setOtherDefaults, allocationOf, setAllocation, savingOf, setMonthlySaving, investmentOf, setMonthlyInvestment, salaryLeftOf, taxOf, onePercentOf, monthLabel, rateDate, prevDate, uahToUsd, addTenthSpending } = Savings;
+const { fmt, esc, shiftMonth, copyEntry, remove, salaryOf, salaryTotal, salaryDateOf, defaultRowValue, currencyToUsd, netSalaryOf, netAfterRatesOf, netRowsOf, withTenth, sortDesc, setSalary, MONTHLY_PAY_UAH, MONTHLY_PAY_LABELS, DEFAULT_ROWS, payOf, setMonthlyPay, setDefaultRows, setOtherDefaults, allocationOf, setAllocation, savingOf, setMonthlySaving, investmentOf, setMonthlyInvestment, salaryLeftOf, taxOf, onePercentOf, monthLabel, rateDate, prevDate, uahToUsd, addTenthSpending } = Savings;
 const RATES_KEY = 'uahUsdRates';
 let family = [];
 let PEOPLE = [];
@@ -191,7 +191,7 @@ function childHtml(e) {
   const tenthField = tenthRow && tenthRow.enabled ? `<div><span>${esc(tenthRow.name)} <input name="otherDefault" data-id="tenth_spend" type="number" min="0" step="0.01" value="${tenthRow.amount}"> ${tenthRow.currency}</span><strong>${usd(tenthRow.amount, tenthRow.currency)}</strong></div>` : '';
   const builtInFields = { monthly_saving: savingField, monthly_investment: investmentField, tenth_spend: tenthField, ...Object.fromEntries(payFields.map((html, i) => [`monthly_pay_${i}`, html])) };
   const builtIns = (Array.isArray(e.defaultRows) ? defaultRows.map(row => row.id) : Object.keys(builtInFields)).filter(id => id in builtInFields).map(id => builtInFields[id]).join('');
-  return `<tr class="child"><td colspan="${4 + salaryPeople.length + salaryDefaultRows.length + salaryOtherRows.length}"><div class="calc">
+  return `<tr class="child"><td colspan="${5 + salaryPeople.length + salaryDefaultRows.length + salaryOtherRows.length}"><div class="calc">
     ${deductionHtml}
     <div class="rate"><span>USD rate</span><strong>${rate ? `1 USD = ${rate} UAH` : rate === null ? 'unavailable' : 'loading...'}<button type="button" class="details" data-rate="${e.month}" ${pending.has(e.month) ? 'disabled' : ''}>${pending.has(e.month) ? 'Updating...' : 'Update rate'}</button></strong></div>
     <form class="payForm" data-month="${e.month}">${builtIns}${forWho}${otherDefaults}<div class="save"><button type="submit">Save</button></div></form>
@@ -255,8 +255,23 @@ const leftText = left => left === 'loading' ? 'loading...' : left === 'unavailab
 
 const leftHtml = e => leftText(leftState(e));
 
-function leftTotalHtml(rows) {
-  const states = rows.map(leftState);
+// Net salary of a month: a number, or 'loading' / 'unavailable' while an exchange rate its rows need is missing.
+function netState(e) {
+  const currencies = new Set(netRowsOf(e).filter(row => !row.id.startsWith('rate_')).map(row => row.currency || 'USD').filter(currency => currency !== 'USD' && currency !== '%'));
+  if (currencies.size && rateOf(e.month) === undefined) loadRate(e.month, 'USD', salaryDateOf(e));
+  currencies.forEach(currency => { if (currency !== 'UAH' && rateOf(e.month, currency) === undefined) loadRate(e.month, currency, salaryDateOf(e)); });
+  const needed = currencies.size ? ['USD', ...[...currencies].filter(currency => currency !== 'UAH')] : [];
+  if (needed.some(currency => rateOf(e.month, currency) === undefined)) return 'loading';
+  if (needed.some(currency => rateOf(e.month, currency) === null)) return 'unavailable';
+  const foreignRates = Object.fromEntries([...currencies].map(currency => [currency, rateOf(e.month, currency)]));
+  const net = netAfterRatesOf(e, rateOf(e.month), foreignRates);
+  return net === null ? 'unavailable' : net;
+}
+
+const netHtml = e => leftText(netState(e));
+
+function leftTotalHtml(rows, stateOf = leftState) {
+  const states = rows.map(stateOf);
   if (states.includes('loading')) return leftText('loading');
   if (states.includes('unavailable')) return leftText('unavailable');
   return leftText(states.reduce((sum, left) => sum + left, 0));
@@ -291,14 +306,15 @@ function render() {
     if (member.enabled === false) return 0;
     return member.currency === '%' ? Savings.salaryIncomeOf(e, col.id, family) : allocationOf(e, family)[col.id] || 0;
   };
-  const colCount = columns.length + 4;
-  $('salaryHead').innerHTML = '<th>Date</th><th>Salary</th><th>Net salary</th>' +
+  const colCount = columns.length + 5;
+  $('salaryHead').innerHTML = '<th>Date</th><th>Salary</th><th>Net salary</th><th>Spending</th>' +
     columns.map(row => `<th>${esc(row.name)} (${esc(row.currency === '%' ? 'USD' : row.currency)})</th>`).join('') + '<th></th>';
 
   $('rows').innerHTML = rows.map(e => `
     <tr>
       <td>${esc(salaryDateLabel(e))}</td>
       <td>${fmt(salaryOf(e))}</td>
+      <td>${netHtml(e)}</td>
       <td>${leftHtml(e)}</td>
       ${columns.map(row => `<td>${fmt(columnValue(e, row))}</td>`).join('')}
       <td>
@@ -309,7 +325,7 @@ function render() {
       </td>
     </tr>${open.has(e.month) ? childHtml(e) : ''}`).join('') || `<tr><td colspan="${colCount}">No salary yet</td></tr>`;
 
-  $('foot').innerHTML = rows.length ? `<td>Total</td><td>${fmt(salaryTotal(rows))}</td><td>${leftTotalHtml(rows)}</td>${columns.map(row => `<td>${row.showInSalaryFooter !== false ? fmt(rows.reduce((sum, e) => sum + columnValue(e, row), 0)) : ''}</td>`).join('')}<td></td>` : '';
+  $('foot').innerHTML = rows.length ? `<td>Total</td><td>${fmt(salaryTotal(rows))}</td><td>${leftTotalHtml(rows, netState)}</td><td>${leftTotalHtml(rows)}</td>${columns.map(row => `<td>${row.showInSalaryFooter !== false ? fmt(rows.reduce((sum, e) => sum + columnValue(e, row), 0)) : ''}</td>`).join('')}<td></td>` : '';
 }
 
 // A new salary line spends the configured UAH amount from the 10% money, converted at that month's rate.

@@ -219,6 +219,22 @@ const Savings = (() => {
   const withTenth = data => data.map(e => ({ ...e, tenth: tenthFromSalary(salaryOf(e), e) }));
   const netSalaryOf = e => netFromSalary(salaryOf(e), e);
   const netSalaryTotal = data => round2(data.reduce((s, e) => s + netSalaryOf(e), 0));
+  // Rows ticked "Net salary" in Config reduce Net salary (the 1%, 5% and 10% rows by default).
+  const netRowsOf = e => [...(Array.isArray(e.defaultRows) ? e.defaultRows : DEFAULT_ROWS), ...(e.otherDefaults || [])]
+    .filter(row => row.enabled !== false && (typeof row.inNetSalary === 'boolean' ? row.inNetSalary : DEFAULT_ROWS.find(item => item.id === row.id)?.inNetSalary === true));
+  // Salary minus those rows in USD; null while an exchange rate they need is missing.
+  const netAfterRatesOf = (e, rate, foreignRates = {}) => {
+    const salary = salaryOf(e);
+    const rates = ratesOf(salary, e);
+    const usdOf = row => {
+      if (row.id.startsWith('rate_')) return rates[row.id] || 0;
+      const raw = row.id === 'monthly_saving' ? savingOf(e) : row.id === 'monthly_investment' ? investmentOf(e)
+        : row.id.startsWith('monthly_pay_') ? payOf(e)[Number(row.id.slice(-1))] : row.id === OTHER ? 0 : row.amount;
+      return currencyToUsd(raw || 0, row.currency || 'USD', rate, foreignRates, salary);
+    };
+    const amounts = netRowsOf(e).map(usdOf);
+    return amounts.some(amount => amount === null) ? null : round2(salary - amounts.reduce((s, amount) => s + amount, 0));
+  };
 
   // Net salary after the 10% has been taken out.
   const afterTenthOf = e => round2(netSalaryOf(e) - (e.tenth || 0));
@@ -412,15 +428,15 @@ const Savings = (() => {
     } : e);
 
   // Per-row switches: which page parts show a row (columns, Details, top blocks, footer) and whether History Total counts it.
-  const rowFlags = (blocks, dropdown) => ({ showInSalary: false, showInSalaryFooter: true, showInHistory: false, showInHistoryDetails: false, showInDropdown: dropdown, showInBlocks: blocks, showInFooter: true, includeInTotal: false });
+  const rowFlags = (blocks, dropdown, net = false) => ({ showInSalary: false, showInSalaryFooter: true, showInHistory: false, showInHistoryDetails: false, showInDropdown: dropdown, showInBlocks: blocks, showInFooter: true, includeInTotal: false, inNetSalary: net });
   const DEFAULT_ROWS = [
     { id: 'monthly_saving', name: 'Monthly saving', currency: 'USD', amount: MONTHLY_SAVING_DEFAULT, enabled: true, ...rowFlags(true, true) },
     { id: 'monthly_investment', name: 'Monthly investment', currency: 'USD', amount: MONTHLY_INVESTMENT_DEFAULT, enabled: true, ...rowFlags(true, true) },
     ...MONTHLY_PAY_LABELS.map((name, i) => ({ id: `monthly_pay_${i}`, name, currency: 'UAH', amount: MONTHLY_PAY_UAH[i], enabled: true, ...rowFlags(false, false) })),
     { id: 'tenth_spend', name: 'Spending from 10%', currency: 'UAH', amount: TENTH_SPEND_UAH, enabled: true, ...rowFlags(false, false) },
-    { id: 'rate_1', name: '1% deduction', currency: '%', base: 'salary', amount: 1, enabled: true, ...rowFlags(false, false) },
-    { id: 'rate_5', name: '5% deduction', currency: '%', base: 'salary', amount: 5, enabled: true, ...rowFlags(false, false) },
-    { id: 'rate_10', name: '10% deduction', currency: '%', base: 'net', amount: 10, enabled: true, ...rowFlags(false, true) },
+    { id: 'rate_1', name: '1% deduction', currency: '%', base: 'salary', amount: 1, enabled: true, ...rowFlags(false, false, true) },
+    { id: 'rate_5', name: '5% deduction', currency: '%', base: 'salary', amount: 5, enabled: true, ...rowFlags(false, false, true) },
+    { id: 'rate_10', name: '10% deduction', currency: '%', base: 'net', amount: 10, enabled: true, ...rowFlags(false, true, true) },
     // Income and spending lines for "Other"; kept as it was before it became a row: shown, counted and in the dropdown.
     { id: 'other', name: 'Other', currency: 'USD', amount: 0, enabled: true, ...rowFlags(true, true), showInHistory: true, showInHistoryDetails: true, includeInTotal: true }
   ];
@@ -480,6 +496,7 @@ const Savings = (() => {
           includeInTotal: row.includeInTotal === true,
           ...(row.showIncome === true ? { showIncome: true } : {}),
           ...(row.inBlocksTotal === true ? { inBlocksTotal: true } : {}),
+          inNetSalary: typeof row.inNetSalary === 'boolean' ? row.inNetSalary : fallback.inNetSalary === true,
           ...(row.newSalariesOnly === true ? { newSalariesOnly: true } : {})
         };
       }).filter(Boolean)
@@ -507,6 +524,7 @@ const Savings = (() => {
         showInHistory: item.showInHistory === true, showInHistoryDetails: typeof item.showInHistoryDetails === 'boolean' ? item.showInHistoryDetails : item.showInHistory === true, showInDropdown: item.showInDropdown === true, showInBlocks: item.showInBlocks === true, showInFooter: item.showInFooter !== false, includeInTotal: item.includeInTotal === true,
         ...(item.showIncome === true ? { showIncome: true } : {}),
         ...(item.inBlocksTotal === true ? { inBlocksTotal: true } : {}),
+        ...(item.inNetSalary === true ? { inNetSalary: true } : {}),
         ...(item.newSalariesOnly === true ? { newSalariesOnly: true } : {}) };
     }).filter(Boolean) : [];
     return {
@@ -617,6 +635,7 @@ const Savings = (() => {
       && (row.showInSalaryFooter === undefined || typeof row.showInSalaryFooter === 'boolean')
       && (row.showIncome === undefined || typeof row.showIncome === 'boolean')
       && (row.inBlocksTotal === undefined || typeof row.inBlocksTotal === 'boolean')
+      && (row.inNetSalary === undefined || typeof row.inNetSalary === 'boolean')
       && typeof row.includeInTotal === 'boolean';
   };
   const isValidMonthlyDefault = item => item && /^default_[\w-]+$/.test(item.id) && typeof item.name === 'string'
@@ -631,6 +650,7 @@ const Savings = (() => {
     && (item.showInSalaryFooter === undefined || typeof item.showInSalaryFooter === 'boolean')
     && (item.showIncome === undefined || typeof item.showIncome === 'boolean')
     && (item.inBlocksTotal === undefined || typeof item.inBlocksTotal === 'boolean')
+    && (item.inNetSalary === undefined || typeof item.inNetSalary === 'boolean')
     && (item.showInHistory === undefined || typeof item.showInHistory === 'boolean')
     && (item.includeInTotal === undefined || typeof item.includeInTotal === 'boolean');
 
@@ -667,7 +687,7 @@ const Savings = (() => {
     : !!parsed && parsed.format === BACKUP_FORMAT && isValidSavingsData(parsed.data) && isValidSettings(parsed.settings);
 
   return {
-    FIELDS, ITEM_WHO, PEOPLE, fmt, sum, esc, salaryOf, salaryTotal, defaultRowValue, rowBaseValue, setRateLookup, netSalaryOf, netSalaryTotal, tenthFromSalary, withTenth, afterTenthOf, afterTenthTotal, spendingsOf, incomesOf, spentOf, incomeOf, leftOf, spentTotals, incomeTotals, totals,
+    FIELDS, ITEM_WHO, PEOPLE, fmt, sum, esc, salaryOf, salaryTotal, defaultRowValue, rowBaseValue, setRateLookup, netSalaryOf, netAfterRatesOf, netRowsOf, netSalaryTotal, tenthFromSalary, withTenth, afterTenthOf, afterTenthTotal, spendingsOf, incomesOf, spentOf, incomeOf, leftOf, spentTotals, incomeTotals, totals,
     sortDesc, parseAmount, parseSalaryCsv, toSalaryCsv, nextFreeMonth, shiftMonth, copyEntry, upsert, remove, parseEntry, setSalary, MONTHLY_PAY_UAH, MONTHLY_PAY_LABELS, DEFAULT_ROWS, CURRENCIES, currencyToUsd, payOf, setMonthlyPay, setDefaultRows, setOtherDefaults, allocationOf, setAllocation, entryMember, entryFamily, savingOf, setMonthlySaving, savingLeftOf, investmentOf, setMonthlyInvestment, investmentLeftOf, salaryLeftOf, salaryIncomeOf, taxOf, onePercentOf, monthLabel, salaryDateOf, isValidGithubConfig, githubUrl, encodeContent, decodeContent, encryptText, decryptText, isEncrypted, rateDate, prevDate, uahToUsd, TENTH_SPEND_UAH, addTenthSpending, DEFAULT_SETTINGS, normalizeSettings, parseItem, addItem, removeItem, toCsv, BACKUP_FORMAT, createBackup, isValidBackup
   };
 })();
