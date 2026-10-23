@@ -49,7 +49,13 @@
   th, td { padding: 8px; text-align: right; border-bottom: 1px solid #e3e3e3; }
   th:first-child, td:first-child { text-align: left; }
   #foot td { font-weight: bold; }
-  .scroll { overflow-x: auto; }
+  .scroll { overflow: auto; max-height: 80vh; }
+  thead { position: sticky; top: 0; z-index: 2; }
+  thead th, thead td { background: #fff; box-shadow: inset 0 -1px #e3e3e3; }
+  /* Keeps the Income/Spending button in view when extra columns make the table scroll sideways. */
+  #headRow th:last-child, #foot td:last-child, #rows > tr:not(.child) > td:last-child { position: sticky; right: 0; background: #fff; }
+  /* The month details stay as wide as the visible table, so their Amount and Delete columns are never off-screen. */
+  .detailsBox { position: sticky; left: 0; width: var(--view, 100%); }
   .head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
   .tools { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
   .note { font-size: 12px; color: #777; }
@@ -207,9 +213,9 @@ function detailsTable(e) {
   const rows = [];
   if (salaryOf(e) > 0 || e.allocation) {
     const alloc = allocationOf(e, family);
-    family.filter(person => shown(person, 'showInHistoryDetails')).forEach(person => rows.push(itemRow(e, 'incomes', { who: person.id, note: 'From My salary', amount: salaryIncomeOf(e, person.id, family) }, true)));
+    family.filter(person => shown(person, 'showInHistoryDetails') && person.showIncome === true).forEach(person => rows.push(itemRow(e, 'incomes', { who: person.id, note: 'From My salary', amount: salaryIncomeOf(e, person.id, family) }, true)));
     // Saving, investment and the 10% are money set aside (income); every other monthly row is money going out.
-    detailRows.forEach(row => rows.push(itemRow(e, ['monthly_saving', 'monthly_investment', 'rate_10'].includes(row.id) ? 'incomes' : 'spendings',
+    detailRows.filter(row => row.showIncome === true || !['monthly_saving', 'monthly_investment', 'rate_10'].includes(row.id)).forEach(row => rows.push(itemRow(e, ['monthly_saving', 'monthly_investment', 'rate_10'].includes(row.id) ? 'incomes' : 'spendings',
       { who: row.name, note: `From My salary (${row.currency === '%' ? 'USD' : row.currency})`, amount: rowBaseValue(e, row) }, true)));
   }
   incomesOf(e).forEach(s => rows.push(itemRow(e, 'incomes', s, false)));
@@ -233,10 +239,11 @@ function detailsHtml(e) {
     <input name="date" type="date" value="${dateValue}" aria-label="Date" required>
     <button type="submit">Add</button>
   </form>`;
-  return `<tr class="child"><td colspan="${HEAD.length + 1}">${form}${detailsTable(e)}</td></tr>`;
+  return `<tr class="child"><td colspan="${HEAD.length + 1}"><div class="detailsBox">${form}${detailsTable(e)}</div></td></tr>`;
 }
 
 function render() {
+  document.querySelector('.scroll').style.setProperty('--view', `${document.querySelector('.scroll').clientWidth - 16}px`);
   data = withTenth(sortData(data));
   const saved = id => data.reduce((s, e) => s + (e[id] || 0), 0);
   const income = id => data.reduce((s, e) => s + incomeOf(e, id, family), 0);
@@ -331,14 +338,6 @@ $('rows').addEventListener('change', ev => {
   ev.target.form.elements.note.placeholder = ev.target.value === 'other' ? 'Description' : 'Note';
 });
 
-// Leaving a valid Income/Spending form saves the line without pressing Add.
-$('rows').addEventListener('focusout', ev => {
-  const form = ev.target.form;
-  if (!form || !form.classList.contains('spendForm') || form.contains(ev.relatedTarget)) return;
-  if (!form.amount.value || !form.checkValidity() || form.querySelector('button[type=submit]').disabled) return;
-  form.requestSubmit();
-});
-
 $('rows').addEventListener('click', ev => {
   const { spend, delitem, kind, month } = ev.target.dataset;
   if (spend) {
@@ -360,6 +359,7 @@ $('headRow').addEventListener('click', ev => {
 });
 
 render();
+window.addEventListener('resize', render);
 GitSync.ready().then(() => {
   refreshFamily();
   refreshHistoryHead();
