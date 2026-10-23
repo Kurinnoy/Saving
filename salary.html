@@ -185,7 +185,9 @@ function childHtml(e) {
   const investmentCurrency = defaultRows.find(row => row.id === 'monthly_investment')?.currency || 'USD';
   const savingField = isEnabled('monthly_saving') ? `<div><span>Monthly saving ${savingCurrency} <input name="saving" type="number" min="0" step="0.01" value="${savingOf(e)}"></span></div>` : '';
   const investmentField = isEnabled('monthly_investment') ? `<div><span>Monthly investment ${investmentCurrency} <input name="investment" type="number" min="0" step="0.01" value="${investmentOf(e)}"></span></div>` : '';
-  const builtInFields = { monthly_saving: savingField, monthly_investment: investmentField, ...Object.fromEntries(payFields.map((html, i) => [`monthly_pay_${i}`, html])) };
+  const tenthRow = defaultRows.find(row => row.id === 'tenth_spend');
+  const tenthField = tenthRow && tenthRow.enabled ? `<div><span>${esc(tenthRow.name)} <input name="otherDefault" data-id="tenth_spend" type="number" min="0" step="0.01" value="${tenthRow.amount}"> ${tenthRow.currency}</span><strong>${usd(tenthRow.amount, tenthRow.currency)}</strong></div>` : '';
+  const builtInFields = { monthly_saving: savingField, monthly_investment: investmentField, tenth_spend: tenthField, ...Object.fromEntries(payFields.map((html, i) => [`monthly_pay_${i}`, html])) };
   const builtIns = (Array.isArray(e.defaultRows) ? defaultRows.map(row => row.id) : Object.keys(builtInFields)).filter(id => id in builtInFields).map(id => builtInFields[id]).join('');
   return `<tr class="child"><td colspan="${4 + salaryPeople.length + salaryDefaultRows.length + salaryOtherRows.length}"><div class="calc">
     ${deductionHtml}

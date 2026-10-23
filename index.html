@@ -208,8 +208,8 @@ function detailsTable(e) {
   if (salaryOf(e) > 0 || e.allocation) {
     const alloc = allocationOf(e, family);
     family.filter(person => shown(person, 'showInHistoryDetails')).forEach(person => rows.push(itemRow(e, 'incomes', { who: person.id, note: 'From My salary', amount: salaryIncomeOf(e, person.id, family) }, true)));
-    // Saving and investment are money set aside (income); every other monthly row is money going out.
-    detailRows.forEach(row => rows.push(itemRow(e, ['monthly_saving', 'monthly_investment'].includes(row.id) ? 'incomes' : 'spendings',
+    // Saving, investment and the 10% are money set aside (income); every other monthly row is money going out.
+    detailRows.forEach(row => rows.push(itemRow(e, ['monthly_saving', 'monthly_investment', 'rate_10'].includes(row.id) ? 'incomes' : 'spendings',
       { who: row.name, note: `From My salary (${row.currency === '%' ? 'USD' : row.currency})`, amount: rowBaseValue(e, row) }, true)));
   }
   incomesOf(e).forEach(s => rows.push(itemRow(e, 'incomes', s, false)));
@@ -222,11 +222,15 @@ function detailsTable(e) {
 }
 
 function detailsHtml(e) {
+  const day = Savings.rateDate(e.month);
+  const dateValue = `${day.slice(0, 4)}-${day.slice(4, 6)}-${day.slice(6, 8)}`;
   const form = `<form class="spendForm" data-month="${e.month}">
     <label class="incomeToggle"><input type="checkbox" name="income"> Income</label>
     <select name="who">${whoOptions.map(([id, label]) => `<option value="${esc(id)}">${esc(label)}</option>`).join('')}</select>
     <input name="note" placeholder="Note">
     <input name="amount" type="number" min="0.01" step="0.01" placeholder="Amount" required>
+    <select name="currency" aria-label="Currency">${['USD', 'UAH', 'EUR'].map(code => `<option value="${code}">${code}</option>`).join('')}</select>
+    <input name="date" type="date" value="${dateValue}" aria-label="Date" required>
     <button type="submit">Add</button>
   </form>`;
   return `<tr class="child"><td colspan="${HEAD.length + 1}">${form}${detailsTable(e)}</td></tr>`;
@@ -280,11 +284,42 @@ $('clearHistory').addEventListener('click', () => {
   render();
 });
 
-$('rows').addEventListener('submit', ev => {
+// NBU official rate for a date; looks back a few days when that date has none.
+async function fetchNbuRate(currency, isoDate) {
+  let date = isoDate.replace(/-/g, '');
+  for (let i = 0; i < 5; i++) {
+    const res = await fetch(`https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?valcode=${encodeURIComponent(currency)}&date=${date}&json`);
+    if (!res.ok) throw new Error(res.status);
+    const [row] = await res.json();
+    if (row && row.rate > 0) return row.rate;
+    date = Savings.prevDate(date);
+  }
+  throw new Error('no rate');
+}
+
+$('rows').addEventListener('submit', async ev => {
   ev.preventDefault();
   const f = ev.target;
-  const spending = parseItem({ who: f.who.value, note: f.note.value, amount: f.amount.value }, PEOPLE);
-  if (!spending) return;
+  const { currency, date } = { currency: f.currency.value, date: f.date.value };
+  const typed = parseFloat(f.amount.value);
+  let amount = typed;
+  if (currency !== 'USD' && typed > 0) {
+    const button = f.querySelector('button[type=submit]');
+    button.disabled = true;
+    try {
+      const usdRate = await fetchNbuRate('USD', date);
+      const foreign = currency === 'UAH' ? {} : { [currency]: await fetchNbuRate(currency, date) };
+      amount = Savings.currencyToUsd(typed, currency, usdRate, foreign);
+    } catch {
+      button.disabled = false;
+      alert(`Could not get the ${currency} exchange rate for ${date}.`);
+      return;
+    }
+  }
+  const label = currency === 'USD' ? date : `${typed} ${currency}, ${date}`;
+  const note = [f.note.value.trim(), `(${label})`].filter(Boolean).join(' ');
+  const spending = parseItem({ who: f.who.value, note: f.note.value.trim() ? note : label, amount }, PEOPLE);
+  if (!spending) { f.querySelector('button[type=submit]').disabled = false; return; }
   data = addItem(data, f.dataset.month, f.income.checked ? 'incomes' : 'spendings', spending);
   persist();
   render();
@@ -294,6 +329,14 @@ $('rows').addEventListener('change', ev => {
   if (ev.target.name !== 'who') return;
   ev.target.form.elements.note.required = ev.target.value === 'other';
   ev.target.form.elements.note.placeholder = ev.target.value === 'other' ? 'Description' : 'Note';
+});
+
+// Leaving a valid Income/Spending form saves the line without pressing Add.
+$('rows').addEventListener('focusout', ev => {
+  const form = ev.target.form;
+  if (!form || !form.classList.contains('spendForm') || form.contains(ev.relatedTarget)) return;
+  if (!form.amount.value || !form.checkValidity() || form.querySelector('button[type=submit]').disabled) return;
+  form.requestSubmit();
 });
 
 $('rows').addEventListener('click', ev => {
