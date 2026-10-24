@@ -52,8 +52,8 @@
   th, td { padding: 8px; text-align: right; border-bottom: 1px solid #e3e3e3; }
   th:first-child, td:first-child { text-align: left; }
   #foot td { font-weight: bold; }
-  .scroll { overflow: auto; max-height: 80vh; }
-  thead { position: sticky; top: 0; z-index: 2; }
+  .scroll { overflow: auto; max-height: 80vh; scrollbar-gutter: stable; }
+  .scroll > table > thead { position: sticky; top: 0; z-index: 2; }
   thead th, thead td { background: #fff; box-shadow: inset 0 -1px #e3e3e3; }
   /* Keeps the Income/Spending button in view when extra columns make the table scroll sideways. */
   #headRow th:last-child, #foot td:last-child, #rows > tr:not(.child) > td:last-child { position: sticky; right: 0; background: #fff; }
@@ -255,6 +255,12 @@ function detailsHtml(e) {
   return `<tr class="child"><td colspan="${HEAD.length + 1}"><div class="detailsBox">${form}${detailsTable(e)}</div></td></tr>`;
 }
 
+function fitHistoryViewport() {
+  const scroller = document.querySelector('.scroll');
+  const top = Math.max(0, scroller.getBoundingClientRect().top);
+  scroller.style.maxHeight = `${Math.max(160, window.innerHeight - top - 32)}px`;
+}
+
 function render() {
   document.querySelector('.scroll').style.setProperty('--view', `${document.querySelector('.scroll').clientWidth - 16}px`);
   data = withTenth(sortData(data));
@@ -279,6 +285,7 @@ function render() {
   const totalBlock = blocks.some(block => block.inTotal)
     ? `<div class="total all"><span>Total</span><strong>${money(blocks.filter(block => block.inTotal).reduce((s, block) => s + block.value, 0))}</strong></div>` : '';
   $('totals').innerHTML = totalBlock + blocks.map(block => `<div class="total"><span>${esc(block.label)}</span><strong>${money(block.value)}</strong>${block.extra}</div>`).join('');
+  fitHistoryViewport();
 
   const footerShown = f => f === 'tenth' ? tenthInFooter : footerIds.has(f);
   const years = new Map();
@@ -421,6 +428,7 @@ $('headRow').addEventListener('click', ev => {
 
 render();
 window.addEventListener('resize', render);
+window.addEventListener('scroll', fitHistoryViewport, { passive: true });
 GitSync.ready().then(() => {
   refreshFamily();
   refreshHistoryHead();

@@ -28,8 +28,8 @@
   #foot td { font-weight: bold; }
   .yearGroup td { background: #eef3ff; font-weight: bold; }
   .yearGroup button { padding: 4px 8px; font-size: 14px; }
-  .scroll { overflow: auto; max-height: 80vh; }
-  thead { position: sticky; top: 0; z-index: 2; }
+  .scroll { overflow: auto; max-height: 80vh; scrollbar-gutter: stable; }
+  .scroll > table > thead { position: sticky; top: 0; z-index: 2; }
   thead th, thead td { background: #fff; box-shadow: inset 0 -1px #e3e3e3; }
   .head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
   .historyActions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
@@ -318,7 +318,14 @@ function applySalarySetup(entry) {
   return { ...entry, defaultRows, otherDefaults };
 }
 
+function fitHistoryViewport() {
+  const scroller = document.querySelector('.scroll');
+  const top = Math.max(0, scroller.getBoundingClientRect().top);
+  scroller.style.maxHeight = `${Math.max(160, window.innerHeight - top - 32)}px`;
+}
+
 function render() {
+  fitHistoryViewport();
   data = withTenth(sortDesc(data.map(applySalarySetup)));
   const rows = data.filter(e => salaryOf(e) > 0);
   const columns = [...salaryPeople, ...salaryDefaultRows, ...salaryOtherRows];
@@ -534,6 +541,8 @@ $('rows').addEventListener('click', ev => {
 
 resetForm();
 render();
+window.addEventListener('resize', fitHistoryViewport);
+window.addEventListener('scroll', fitHistoryViewport, { passive: true });
 GitSync.ready().then(() => {
   refreshFamily();
   data = JSON.parse(sessionStorage.getItem(KEY) || '[]');
