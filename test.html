@@ -122,6 +122,37 @@ describe('Edit History items', () => {
   });
 });
 
+describe('Default currency', () => {
+  it('uses USD for existing settings without a preference', () => eq(normalizeSettings({}).defaultCurrency, 'USD'));
+  it('accepts a default currency but not percentages', () => {
+    eq(normalizeSettings({ defaultCurrency: 'EUR' }).defaultCurrency, 'EUR');
+    eq(normalizeSettings({ defaultCurrency: '%' }).defaultCurrency, 'USD');
+  });
+  it('applies the default to inheriting family and monthly rows', () => {
+    const settings = normalizeSettings({
+      defaultCurrency: 'EUR',
+      family: [{ id: 'me', name: 'Me', currency: 'USD', useDefaultCurrency: true }],
+      defaultRows: [{ ...DEFAULT_ROWS.find(row => row.id === 'monthly_pay_4'), useDefaultCurrency: true }],
+      otherDefaults: [{ id: 'default_item', name: 'Item', currency: 'USD', useDefaultCurrency: true }]
+    });
+    eq([settings.family[0].currency, settings.defaultRows[0].currency, settings.otherDefaults[0].currency], ['EUR', 'EUR', 'EUR']);
+  });
+  it('preserves explicit USD and other currency overrides', () => {
+    const settings = normalizeSettings({ defaultCurrency: 'EUR', family: [{ id: 'me', name: 'Me', currency: 'USD', useDefaultCurrency: false }], otherDefaults: [{ id: 'default_item', name: 'Item', currency: 'UAH', useDefaultCurrency: false }] });
+    eq([settings.family[0].currency, settings.otherDefaults[0].currency], ['USD', 'UAH']);
+  });
+  it('inherited rows follow a later change of default', () => {
+    const first = normalizeSettings({ defaultCurrency: 'EUR', otherDefaults: [{ id: 'default_item', name: 'Item', currency: 'default' }] });
+    eq(normalizeSettings({ ...first, defaultCurrency: 'UAH' }).otherDefaults[0].currency, 'UAH');
+  });
+  it('keeps the default and row overrides in backups', () => {
+    const backup = createBackup([], { defaultCurrency: 'EUR', otherDefaults: [{ id: 'default_item', name: 'Item', currency: 'USD', useDefaultCurrency: false }] });
+    eq(backup.settings.defaultCurrency, 'EUR');
+    eq(backup.settings.otherDefaults[0].currency, 'USD');
+    eq(isValidBackup(backup), true);
+  });
+});
+
 describe('Custom deduction base', () => {
   const custom = { id: 'default_esf', name: 'ESF', currency: 'UAH', amount: 400, enabled: true, inNetSalary: true, base: 'net' };
   it('preserves the base on the built-in ESF row', () => {
@@ -526,6 +557,7 @@ describe('defaults for new salary lines (Config page)', () => {
   const allShown = { showInSalary: true, showInSalaryFooter: true, showInHistory: true, showInHistoryDetails: true, showInDropdown: true, showInBlocks: true, showInFooter: true, includeInTotal: true };
   const custom = { monthlySaving: 800, monthlyInvestment: 700, allocation: { me: 10, wife: 20, son: 30 }, monthlyPay: [1, 2, 3, 4], tenthSpendUah: 5000, otherDefaults: [] };
   it('built-in defaults', () => eq(DEFAULT_SETTINGS, {
+    defaultCurrency: 'USD',
     family: [
       { id: 'me', name: 'Me', enabled: true, monthlyAmount: 275, ...allShown },
       { id: 'wife', name: 'Wife', enabled: true, monthlyAmount: 275, ...allShown },

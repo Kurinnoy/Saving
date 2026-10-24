@@ -50,8 +50,6 @@
   .incomeToggle { display: flex; align-items: center; gap: 4px; font-size: 14px; color: #222; cursor: pointer; }
   table { width: 100%; border-collapse: collapse; }
   .scroll > table { table-layout: fixed; }
-  #headRow th:first-child { width: 128px; }
-  #headRow th:last-child { width: 240px; }
   #headRow th { white-space: normal; overflow-wrap: anywhere; }
   #rows > tr:not(.child) > td { overflow-wrap: anywhere; }
   th, td { padding: 8px; text-align: right; border-bottom: 1px solid #e3e3e3; }
@@ -60,6 +58,11 @@
   .scroll { overflow: auto; overflow-y: scroll; max-height: 80vh; scrollbar-gutter: stable; }
   .scroll > table > thead { position: sticky; top: 0; z-index: 2; }
   thead th, thead td { background: #fff; box-shadow: inset 0 -1px #e3e3e3; }
+  .scroll > table > thead > tr > :nth-child(-n+2),
+  #rows > tr:not(.child) > td:nth-child(-n+2) { position: sticky; left: 0; z-index: 1; background: #fff; }
+  .scroll > table > thead > tr > :nth-child(2),
+  #rows > tr:not(.child) > td:nth-child(2) { left: var(--first-column-width, 128px); box-shadow: 2px 0 #e3e3e3, inset 0 -1px #e3e3e3; }
+  #rows > tr.yearGroup > td:nth-child(-n+2) { background: #eef3ff; }
   /* Keeps the Income/Spending button in view when extra columns make the table scroll sideways. */
   #headRow th:last-child, #foot td:last-child, #rows > tr:not(.child) > td:last-child { position: sticky; right: 0; background: #fff; }
   /* The month details stay as wide as the visible table, so their Amount and Delete columns are never off-screen. */
@@ -184,8 +187,8 @@ function refreshHistoryHead() {
     ['total', 'Total', rowTotal],
     ...historyPeople.map(person => [person.id, person.name, e => leftOf(e, person.id, family)]),
     ...(tenthInHistory ? [['tenth', '10%', e => leftOf(e, 'tenth', family)]] : []),
-    ...historyDefaultRows.map(row => [row.id, `${row.name} (${row.currency === '%' ? 'USD' : row.currency})`, e => defaultRowValue(e, row)]),
-    ...historyOtherRows.map(row => [row.id, `${row.name} (${row.currency === '%' ? 'USD' : row.currency})`, e => defaultRowValue(e, row)])
+    ...historyDefaultRows.map(row => [row.id, `${row.name}${['USD', '%'].includes(row.currency) ? '' : ` (${row.currency})`}`, e => defaultRowValue(e, row)]),
+    ...historyOtherRows.map(row => [row.id, `${row.name}${['USD', '%'].includes(row.currency) ? '' : ` (${row.currency})`}`, e => defaultRowValue(e, row)])
   ];
   sortValue = Object.fromEntries(HEAD.map(([key, , value]) => [key, value]));
   if (!sortValue[sort.key]) sort = { key: 'month', dir: 'desc' };
@@ -252,7 +255,7 @@ function detailsHtml(e) {
     <select name="who" aria-label="Who">${options.map(([id, label]) => `<option value="${esc(id)}" ${item && item.who === id ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>
     <input name="note" aria-label="Note" placeholder="${item && item.who === 'other' ? 'Description' : 'Note'}" value="${esc(item ? item.note : '')}" ${item && item.who === 'other' ? 'required' : ''}>
     <input name="amount" type="text" inputmode="text" aria-label="Amount" data-amount="${item ? item.amount : 0}" value="${item ? item.amount : ''}" placeholder="Amount" required>
-    <select name="currency" aria-label="Currency">${['USD', 'UAH', 'EUR'].map(code => `<option value="${code}">${code}</option>`).join('')}</select>
+    <select name="currency" aria-label="Currency">${['USD', 'UAH', 'EUR'].map(code => `<option value="${code}" ${code === (item ? 'USD' : AppSettings.load().defaultCurrency) ? 'selected' : ''}>${code}</option>`).join('')}</select>
     <input name="date" type="date" value="${dateValue}" aria-label="Date" required>
     <button type="submit">${item ? 'Save' : 'Add'}</button>
     ${item ? `<button type="button" class="secondary" data-cancelitem="${e.month}">Cancel</button>` : ''}
@@ -279,7 +282,6 @@ function render() {
     const arrow = sort.key === key ? (sort.dir === 'asc' ? ' \u25B2' : ' \u25BC') : '';
     return `<th class="sortable" data-key="${esc(key)}">${esc(label)}${arrow}</th>`;
   }).join('') + '<th></th>';
-  $('table').style.minWidth = `${128 + (HEAD.length - 1) * 144 + 240}px`;
 
   // Same order as Config: family first, then the monthly rows (the 10% money sits where its row is).
   const blocks = [
@@ -300,6 +302,22 @@ function render() {
     if (!years.has(year)) years.set(year, []);
     years.get(year).push(entry);
   });
+  const measure = document.createElement('canvas').getContext('2d');
+  const headerStyle = getComputedStyle($('headRow').cells[0]);
+  measure.font = headerStyle.font;
+  const summaries = [...years.values(), data];
+  const widths = HEAD.map(([key, label, value], index) => {
+    const values = index === 0
+      ? ['Total', ...data.map(entry => monthLabel(entry.month)), ...[...years.keys()].map(year => `> ${year}`)]
+      : [...data.map(entry => fmt(value(entry))), ...summaries.map(entries => fmt(entries.reduce((sum, entry) => sum + value(entry), 0)))];
+    const padding = index === 0 ? 24 : 16;
+    return Math.ceil(values.reduce((width, text) => Math.max(width, measure.measureText(text).width + padding), Math.max(64, Math.min(260, measure.measureText(`${label} >`).width + 16))));
+  });
+  measure.font = `13px ${headerStyle.fontFamily}`;
+  widths.push(Math.ceil(data.reduce((width, entry) => Math.max(width, measure.measureText(`Income/Spending (${incomesOf(entry).length}/${spendingsOf(entry).length})`).width + 32), measure.measureText('Income/Spending (0/0)').width + 32)));
+  [...$('headRow').cells].forEach((cell, index) => { cell.style.width = `${widths[index]}px`; });
+  $('table').style.setProperty('--first-column-width', `${widths[0]}px`);
+  $('table').style.width = `${widths.reduce((sum, width) => sum + width, 0)}px`;
   $('rows').innerHTML = [...years].map(([year, entries]) => {
     const collapsed = !expandedYears.has(year);
     const group = `<tr class="yearGroup">

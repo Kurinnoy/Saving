@@ -61,10 +61,16 @@
   <h1>Config</h1>
   <nav><a href="salary.html">My salary</a><a href="index.html">Family Savings</a><a href="config.html" class="current">Config</a></nav>
   <div class="tabs" role="tablist" aria-label="Config sections">
-    <button type="button" class="tab" id="tabFamily" role="tab" aria-controls="panelFamily" aria-selected="true" tabindex="0">Family setup</button>
+    <button type="button" class="tab" id="tabGeneral" role="tab" aria-controls="panelGeneral" aria-selected="true" tabindex="0">General</button>
+    <button type="button" class="tab" id="tabFamily" role="tab" aria-controls="panelFamily" aria-selected="false" tabindex="-1">Family setup</button>
     <button type="button" class="tab" id="tabOther" role="tab" aria-controls="panelOther" aria-selected="false" tabindex="-1">Other monthly defaults</button>
     <button type="button" class="tab" id="tabGithub" role="tab" aria-controls="panelGithub" aria-selected="false" tabindex="-1">GitHub</button>
     <button type="button" class="tab" id="tabPassword" role="tab" aria-controls="panelPassword" aria-selected="false" tabindex="-1">Change encryption password</button>
+  </div>
+
+  <div class="card" id="panelGeneral" role="tabpanel" aria-labelledby="tabGeneral" tabindex="0">
+    <h2>General</h2>
+    <div><label for="defaultCurrency">Default currency</label><select id="defaultCurrency" aria-label="Default currency"></select></div>
   </div>
 
   <div class="card" id="panelGithub" role="tabpanel" aria-labelledby="tabGithub" tabindex="0" hidden>
@@ -102,7 +108,7 @@
     <p class="note">The file in GitHub is re-encrypted with the new password. The GitHub settings above (including the token) must be filled in. If you forget the current password the file cannot be recovered.</p>
   </div>
 
-  <div class="card" id="panelFamily" role="tabpanel" aria-labelledby="tabFamily" tabindex="0">
+  <div class="card" id="panelFamily" role="tabpanel" aria-labelledby="tabFamily" tabindex="0" hidden>
     <h2>Family setup</h2>
     <p class="note">Select the people to include and set the amount saved for each on every new salary line. "New salaries only" keeps a person's Include and currency as they are in the salary months you already have, so a change here only affects salaries you add afterwards. The checkboxes choose where each person appears: Salary table columns, History table columns, History details (each month's Income/Spending list on Family Savings), the Totals blocks on Family Savings, the Salary footer and History total rows and the History Total column. Unticking Include hides the person everywhere and locks their other checkboxes. Drag a row by its handle (or focus the handle and press the up or down arrow) to change the order, then save.</p>
     <div class="family-scroll">
@@ -223,13 +229,19 @@ const dragCell = '<td><button type="button" class="drag-handle" data-drag aria-l
 const flagBox = (flag, name, label, checked) => `<td><input type="checkbox" data-flag="${flag}" aria-label="${esc(label)}: ${esc(name)}" ${checked ? 'checked' : ''}></td>`;
 const FAMILY_VIEW_FLAGS = [['showInSalary', 'Show in Salary table'], ['showInSalaryFooter', 'Show in Salary footer total'], ['showInHistoryDetails', 'Show in History details'], ['showInDropdown', 'Add to Who dropdown'], ['showInHistory', 'Show in History table'], ['showIncome', 'Show income in History table'], ['showInBlocks', 'Show in Totals block'], ['inBlocksTotal', 'Add to Blocks total'], ['showInFooter', 'Show in History total'], ['includeInTotal', 'Include in History Total']];
 
+function currencyOptions(item) {
+  const inherited = item.useDefaultCurrency === true || !item.currency;
+  const currency = inherited ? $('defaultCurrency').value || 'USD' : item.currency;
+  return Savings.CURRENCIES.map(code => `<option value="${code}" ${currency === code ? 'selected' : ''}>${code}</option>`).join('');
+}
+
 function familyRow(person) {
   return `<tr data-id="${esc(person.id)}">
     ${dragCell}
     <td><input type="checkbox" data-enabled aria-label="Include ${esc(person.name)}" ${person.enabled ? 'checked' : ''}></td>
     <td><input type="checkbox" data-new-only aria-label="Include ${esc(person.name)} only in new salaries" ${person.newSalariesOnly ? 'checked' : ''}></td>
     <th scope="row"><input type="text" data-name value="${esc(person.name)}" required aria-label="Person name"></th>
-    <td><select data-currency aria-label="${esc(person.name)} currency">${Savings.CURRENCIES.map(code => `<option value="${code}" ${(person.currency || 'USD') === code ? 'selected' : ''}>${code}</option>`).join('')}</select></td>
+    <td><select data-currency data-inherited="${person.useDefaultCurrency === true || !person.currency}" aria-label="${esc(person.name)} currency">${currencyOptions(person)}</select></td>
     <td><input type="text" inputmode="text" data-amount="${person.monthlyAmount}" value="${person.monthlyAmount}" aria-label="Monthly amount"></td>
     ${FAMILY_VIEW_FLAGS.map(([flag, label]) => flagBox(flag, person.name, label, flag === 'showIncome' || flag === 'inBlocksTotal' ? person[flag] === true : person[flag] !== false)).join('')}
     <td><button type="button" class="remove" data-remove aria-label="Remove ${esc(person.name)}">Remove</button></td>
@@ -239,7 +251,7 @@ function familyRow(person) {
 function defaultRow(row) {
   // Other has no amount: it only totals the income and spending lines added to it.
   const isOther = row.id === 'other';
-  const currencySelect = `<select data-currency aria-label="${esc(row.name)} currency">${Savings.CURRENCIES.map(code => `<option value="${code}" ${row.currency === code ? 'selected' : ''}>${code}</option>`).join('')}</select>`;
+  const currencySelect = `<select data-currency data-inherited="${row.useDefaultCurrency === true || !row.currency}" aria-label="${esc(row.name)} currency">${currencyOptions(row)}</select>`;
   const baseSelect = !isOther
     ? ` <select data-base aria-label="${esc(row.name)} calculated from"><option value="salary" ${row.base !== 'net' ? 'selected' : ''}>of Salary</option><option value="net" ${row.base === 'net' ? 'selected' : ''}>of Net salary (after deductions)</option></select>`
     : '';
@@ -272,7 +284,7 @@ function otherDefaultRow(item) {
     <td><input type="checkbox" data-enabled aria-label="Include ${esc(item.name)}" ${item.enabled !== false ? 'checked' : ''}></td>
     <td><input type="checkbox" data-new-only aria-label="Include ${esc(item.name)} only in new salaries" ${item.newSalariesOnly ? 'checked' : ''}></td>
     <th scope="row"><input type="text" data-name value="${esc(item.name)}" required aria-label="Monthly item name"></th>
-    <td><select data-currency aria-label="Currency">${Savings.CURRENCIES.map(code => `<option value="${code}" ${item.currency === code ? 'selected' : ''}>${code}</option>`).join('')}</select> <select data-base aria-label="${esc(item.name)} calculated from"><option value="salary" ${item.base !== 'net' ? 'selected' : ''}>of Salary</option><option value="net" ${item.base === 'net' ? 'selected' : ''}>of Net salary (after deductions)</option></select></td>
+    <td><select data-currency data-inherited="${item.useDefaultCurrency === true || !item.currency}" aria-label="Currency">${currencyOptions(item)}</select> <select data-base aria-label="${esc(item.name)} calculated from"><option value="salary" ${item.base !== 'net' ? 'selected' : ''}>of Salary</option><option value="net" ${item.base === 'net' ? 'selected' : ''}>of Net salary (after deductions)</option></select></td>
     <td><input type="text" inputmode="text" data-amount="${item.amount}" value="${item.amount}" aria-label="Default amount"></td>
     <td><input type="checkbox" data-show-salary aria-label="Show ${esc(item.name)} in Salary table" ${item.showInSalary === true ? 'checked' : ''}></td>
     ${flagBox('showInSalaryFooter', item.name, 'Show in Salary footer total', item.showInSalaryFooter !== false)}
@@ -362,11 +374,13 @@ function applyDetailsRule(tr) {
 }
 // Registered before the auto save listeners so the saved values already follow the rule.
 ['familyRows', 'defaultRows', 'otherDefaultRows'].forEach(id => $(id).addEventListener('change', ev => {
+  if (ev.target.matches('[data-currency]')) ev.target.dataset.inherited = 'false';
   const tr = ev.target.closest('tr');
   if (tr && [detailsBox(tr), tr.querySelector('[data-flag="showInHistoryDetails"]'), tr.querySelector('[data-flag="showInBlocks"]')].includes(ev.target)) applyDetailsRule(tr);
 }));
 
 function fillDefaults(s) {
+  $('defaultCurrency').innerHTML = Savings.CURRENCIES.filter(code => code !== '%').map(code => `<option value="${code}" ${s.defaultCurrency === code ? 'selected' : ''}>${code}</option>`).join('');
   $('familyRows').innerHTML = s.family.map(familyRow).join('');
   $('defaultRows').innerHTML = s.defaultRows.map(defaultRow).join('');
   $('otherDefaultRows').innerHTML = s.otherDefaults.map(otherDefaultRow).join('');
@@ -468,7 +482,7 @@ $('familyRows').addEventListener('click', ev => {
 
 $('addOtherDefault').addEventListener('click', () => {
   const id = `default_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
-  $('otherDefaultRows').insertAdjacentHTML('beforeend', otherDefaultRow({ id, name: '', currency: 'USD', amount: 0, enabled: true }));
+  $('otherDefaultRows').insertAdjacentHTML('beforeend', otherDefaultRow({ id, name: '', useDefaultCurrency: true, amount: 0, enabled: true }));
   $('otherDefaultRows').lastElementChild.querySelector('[data-name]').focus();
 });
 
@@ -517,6 +531,7 @@ function saveFamily() {
       enabled: row.querySelector('[data-enabled]').checked,
       monthlyAmount: row.querySelector('[data-amount]').value,
       currency: row.querySelector('[data-currency]').value,
+      useDefaultCurrency: row.querySelector('[data-currency]').dataset.inherited === 'true',
       newSalariesOnly: row.querySelector('[data-new-only]').checked,
       ...Object.fromEntries(FAMILY_VIEW_FLAGS.map(([flag]) => [flag, row.querySelector(`[data-flag="${flag}"]`).checked]))
     }))
@@ -537,6 +552,7 @@ function saveDefaults(rerender = true) {
       id: row.dataset.id,
       name: row.querySelector('[data-name]').value.trim(),
       currency: row.querySelector('[data-currency]')?.value || (row.dataset.id === 'other' ? 'USD' : '%'),
+      ...(row.querySelector('[data-currency]') ? { useDefaultCurrency: row.querySelector('[data-currency]').dataset.inherited === 'true' } : {}),
       ...(row.querySelector('[data-base]') ? { base: row.querySelector('[data-base]').value } : {}),
       enabled: row.querySelector('[data-enabled]').checked,
       amount: row.querySelector('[data-amount]').value,
@@ -557,6 +573,7 @@ function saveDefaults(rerender = true) {
       id: row.dataset.id,
       name: row.querySelector('[data-name]').value.trim(),
       currency: row.querySelector('[data-currency]').value,
+      useDefaultCurrency: row.querySelector('[data-currency]').dataset.inherited === 'true',
       base: row.querySelector('[data-base]').value,
       amount: row.querySelector('[data-amount]').value,
       enabled: row.querySelector('[data-enabled]').checked,
@@ -581,6 +598,13 @@ function saveDefaults(rerender = true) {
 
 $('saveFamily').addEventListener('click', saveFamily);
 $('saveDefaults').addEventListener('click', () => saveDefaults());
+
+$('defaultCurrency').addEventListener('change', () => {
+  const currency = $('defaultCurrency').value;
+  AppSettings.save({ ...AppSettings.load(), defaultCurrency: currency });
+  document.querySelectorAll('[data-currency][data-inherited="true"]').forEach(select => { select.value = currency; });
+  familyStatus('Default currency saved.', true);
+});
 
 const AUTO_SAVE_KEY = 'configAutoSave';
 const autoBoxes = [$('autoSaveFamily'), $('autoSaveDefaults')];

@@ -464,11 +464,19 @@ const Savings = (() => {
     || DEFAULT_ROWS.find(row => row.id === id)?.currency || 'USD';
 
   // Defaults for new salary lines, editable on the Config page; the built-in values are the fallback.
-  const DEFAULT_SETTINGS = { family: DEFAULT_FAMILY, defaultRows: DEFAULT_ROWS, otherDefaults: [], visibilityVersion: 1, rowsVersion: 2, monthlySaving: MONTHLY_SAVING_DEFAULT, monthlyInvestment: MONTHLY_INVESTMENT_DEFAULT, allocation: ALLOCATION_DEFAULT, monthlyPay: MONTHLY_PAY_UAH, tenthSpendUah: TENTH_SPEND_UAH };
+  const DEFAULT_SETTINGS = { defaultCurrency: 'USD', family: DEFAULT_FAMILY, defaultRows: DEFAULT_ROWS, otherDefaults: [], visibilityVersion: 1, rowsVersion: 2, monthlySaving: MONTHLY_SAVING_DEFAULT, monthlyInvestment: MONTHLY_INVESTMENT_DEFAULT, allocation: ALLOCATION_DEFAULT, monthlyPay: MONTHLY_PAY_UAH, tenthSpendUah: TENTH_SPEND_UAH };
   const nonNegative = (v, fallback) => { const n = parseFloat(v); return Number.isFinite(n) && n >= 0 ? round2(n) : fallback; };
   const normalizeSettings = (raw) => {
     const s = raw && typeof raw === 'object' ? raw : {};
     const d = DEFAULT_SETTINGS;
+    const defaultCurrency = CURRENCIES.includes(s.defaultCurrency) && s.defaultCurrency !== '%' ? s.defaultCurrency : 'USD';
+    const currencySettings = (item, fallback = 'USD') => {
+      const inherited = item.useDefaultCurrency === true || item.currency === 'default';
+      return {
+        currency: inherited ? defaultCurrency : CURRENCIES.includes(item.currency) ? item.currency : fallback,
+        ...(typeof item.useDefaultCurrency === 'boolean' || inherited ? { useDefaultCurrency: inherited } : {})
+      };
+    };
     const seen = new Set();
     const family = Array.isArray(s.family)
       ? s.family.map(member => {
@@ -481,7 +489,8 @@ const Savings = (() => {
           name: String(member.name || id).trim() || id,
           enabled: member.enabled !== false,
           monthlyAmount: nonNegative(member.monthlyAmount, legacy ? legacy.monthlyAmount : 0),
-          ...(CURRENCIES.includes(member.currency) && member.currency !== 'USD' ? { currency: member.currency } : {}),
+          ...((typeof member.useDefaultCurrency === 'boolean' || member.currency === 'default' || (CURRENCIES.includes(member.currency) && member.currency !== 'USD'))
+            ? currencySettings(member) : defaultCurrency !== 'USD' ? { currency: defaultCurrency, useDefaultCurrency: true } : {}),
           ...(member.newSalariesOnly === true ? { newSalariesOnly: true } : {}),
           ...(member.showIncome === true ? { showIncome: true } : {}),
           ...(member.inBlocksTotal === true ? { inBlocksTotal: true } : {}),
@@ -502,7 +511,7 @@ const Savings = (() => {
         return {
           id: fallback.id,
           name: String(row.name || fallback.name).trim() || fallback.name,
-          currency: fallback.id === OTHER ? 'USD' : CURRENCIES.includes(row.currency) ? row.currency : fallback.currency,
+          ...(fallback.id === OTHER ? { currency: 'USD' } : currencySettings(row, fallback.currency)),
           ...(RATE_BASES.includes(row.base) ? { base: row.base } : fallback.base ? { base: fallback.base } : {}),
           amount: nonNegative(row.amount, fallback.amount),
           enabled: row.enabled !== false,
@@ -538,7 +547,7 @@ const Savings = (() => {
       const name = String(item && item.name || '').trim();
       if (!/^default_[\w-]+$/.test(id) || !name || seenDefaults.has(id)) return null;
       seenDefaults.add(id);
-      return { id, name, currency: CURRENCIES.includes(item.currency) ? item.currency : 'USD', amount: nonNegative(item.amount, 0), enabled: item.enabled !== false,
+      return { id, name, ...currencySettings(item, defaultCurrency), amount: nonNegative(item.amount, 0), enabled: item.enabled !== false,
         ...(RATE_BASES.includes(item.base) ? { base: item.base } : {}),
         showInSalary: item.showInSalary === true,
         showInSalaryFooter: typeof item.showInSalaryFooter === 'boolean' ? item.showInSalaryFooter : item.showInFooter !== false,
@@ -549,6 +558,7 @@ const Savings = (() => {
         ...(item.newSalariesOnly === true ? { newSalariesOnly: true } : {}) };
     }).filter(Boolean) : [];
     return {
+      defaultCurrency,
       family,
       defaultRows,
       otherDefaults,
