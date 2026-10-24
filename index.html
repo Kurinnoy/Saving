@@ -49,10 +49,15 @@
   .spendForm input[name=note] { flex: 1; min-width: 120px; }
   .incomeToggle { display: flex; align-items: center; gap: 4px; font-size: 14px; color: #222; cursor: pointer; }
   table { width: 100%; border-collapse: collapse; }
+  .scroll > table { table-layout: fixed; }
+  #headRow th:first-child { width: 128px; }
+  #headRow th:last-child { width: 240px; }
+  #headRow th { white-space: normal; overflow-wrap: anywhere; }
+  #rows > tr:not(.child) > td { overflow-wrap: anywhere; }
   th, td { padding: 8px; text-align: right; border-bottom: 1px solid #e3e3e3; }
   th:first-child, td:first-child { text-align: left; }
   #foot td { font-weight: bold; }
-  .scroll { overflow: auto; max-height: 80vh; scrollbar-gutter: stable; }
+  .scroll { overflow: auto; overflow-y: scroll; max-height: 80vh; scrollbar-gutter: stable; }
   .scroll > table > thead { position: sticky; top: 0; z-index: 2; }
   thead th, thead td { background: #fff; box-shadow: inset 0 -1px #e3e3e3; }
   /* Keeps the Income/Spending button in view when extra columns make the table scroll sideways. */
@@ -274,6 +279,7 @@ function render() {
     const arrow = sort.key === key ? (sort.dir === 'asc' ? ' \u25B2' : ' \u25BC') : '';
     return `<th class="sortable" data-key="${esc(key)}">${esc(label)}${arrow}</th>`;
   }).join('') + '<th></th>';
+  $('table').style.minWidth = `${128 + (HEAD.length - 1) * 144 + 240}px`;
 
   // Same order as Config: family first, then the monthly rows (the 10% money sits where its row is).
   const blocks = [
