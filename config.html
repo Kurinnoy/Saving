@@ -230,7 +230,7 @@ function familyRow(person) {
     <td><input type="checkbox" data-new-only aria-label="Include ${esc(person.name)} only in new salaries" ${person.newSalariesOnly ? 'checked' : ''}></td>
     <th scope="row"><input type="text" data-name value="${esc(person.name)}" required aria-label="Person name"></th>
     <td><select data-currency aria-label="${esc(person.name)} currency">${Savings.CURRENCIES.map(code => `<option value="${code}" ${(person.currency || 'USD') === code ? 'selected' : ''}>${code}</option>`).join('')}</select></td>
-    <td><input type="number" data-amount min="0" step="0.01" value="${person.monthlyAmount}" aria-label="Monthly amount"></td>
+    <td><input type="text" inputmode="text" data-amount="${person.monthlyAmount}" value="${person.monthlyAmount}" aria-label="Monthly amount"></td>
     ${FAMILY_VIEW_FLAGS.map(([flag, label]) => flagBox(flag, person.name, label, flag === 'showIncome' || flag === 'inBlocksTotal' ? person[flag] === true : person[flag] !== false)).join('')}
     <td><button type="button" class="remove" data-remove aria-label="Remove ${esc(person.name)}">Remove</button></td>
   </tr>`;
@@ -240,9 +240,8 @@ function defaultRow(row) {
   // Other has no amount: it only totals the income and spending lines added to it.
   const isOther = row.id === 'other';
   const currencySelect = `<select data-currency aria-label="${esc(row.name)} currency">${Savings.CURRENCIES.map(code => `<option value="${code}" ${row.currency === code ? 'selected' : ''}>${code}</option>`).join('')}</select>`;
-  // "Calculated from" only means something while a deduction is a percentage.
-  const baseSelect = row.id.startsWith('rate_')
-    ? ` <select data-base ${row.currency === '%' ? '' : 'hidden'} aria-label="${esc(row.name)} calculated from"><option value="salary" ${row.base === 'salary' ? 'selected' : ''}>of Salary</option><option value="net" ${row.base === 'net' ? 'selected' : ''}>of Net salary (after % rows above)</option></select>`
+  const baseSelect = !isOther
+    ? ` <select data-base aria-label="${esc(row.name)} calculated from"><option value="salary" ${row.base !== 'net' ? 'selected' : ''}>of Salary</option><option value="net" ${row.base === 'net' ? 'selected' : ''}>of Net salary (after deductions)</option></select>`
     : '';
   const currency = isOther ? '<td>USD</td>' : `<td>${currencySelect}${baseSelect}</td>`;
   return `<tr data-id="${esc(row.id)}">
@@ -251,7 +250,7 @@ function defaultRow(row) {
     <td><input type="checkbox" data-new-only aria-label="Include ${esc(row.name)} only in new salaries" ${row.newSalariesOnly ? 'checked' : ''}></td>
     <th scope="row"><input type="text" data-name value="${esc(row.name)}" required aria-label="Monthly item name"></th>
     ${currency}
-    <td><input type="number" data-amount min="0" step="0.01" value="${row.amount}" ${isOther ? 'disabled' : ''} aria-label="${esc(row.name)} default amount or rate"></td>
+    <td><input type="text" inputmode="text" data-amount="${row.amount}" value="${row.amount}" ${isOther ? 'disabled' : ''} aria-label="${esc(row.name)} default amount or rate"></td>
     <td><input type="checkbox" data-show-salary aria-label="Show ${esc(row.name)} in Salary table" ${row.showInSalary ? 'checked' : ''}></td>
     ${flagBox('showInSalaryFooter', row.name, 'Show in Salary footer total', row.showInSalaryFooter !== false)}
     ${flagBox('inNetSalary', row.name, 'Reduce Net salary', row.inNetSalary === true)}
@@ -273,8 +272,8 @@ function otherDefaultRow(item) {
     <td><input type="checkbox" data-enabled aria-label="Include ${esc(item.name)}" ${item.enabled !== false ? 'checked' : ''}></td>
     <td><input type="checkbox" data-new-only aria-label="Include ${esc(item.name)} only in new salaries" ${item.newSalariesOnly ? 'checked' : ''}></td>
     <th scope="row"><input type="text" data-name value="${esc(item.name)}" required aria-label="Monthly item name"></th>
-    <td><select data-currency aria-label="Currency">${Savings.CURRENCIES.map(code => `<option value="${code}" ${item.currency === code ? 'selected' : ''}>${code}</option>`).join('')}</select></td>
-    <td><input type="number" data-amount min="0" step="0.01" value="${item.amount}" aria-label="Default amount"></td>
+    <td><select data-currency aria-label="Currency">${Savings.CURRENCIES.map(code => `<option value="${code}" ${item.currency === code ? 'selected' : ''}>${code}</option>`).join('')}</select> <select data-base aria-label="${esc(item.name)} calculated from"><option value="salary" ${item.base !== 'net' ? 'selected' : ''}>of Salary</option><option value="net" ${item.base === 'net' ? 'selected' : ''}>of Net salary (after deductions)</option></select></td>
+    <td><input type="text" inputmode="text" data-amount="${item.amount}" value="${item.amount}" aria-label="Default amount"></td>
     <td><input type="checkbox" data-show-salary aria-label="Show ${esc(item.name)} in Salary table" ${item.showInSalary === true ? 'checked' : ''}></td>
     ${flagBox('showInSalaryFooter', item.name, 'Show in Salary footer total', item.showInSalaryFooter !== false)}
     ${flagBox('inNetSalary', item.name, 'Reduce Net salary', item.inNetSalary === true)}
@@ -362,10 +361,6 @@ function applyDetailsRule(tr) {
   });
 }
 // Registered before the auto save listeners so the saved values already follow the rule.
-$('defaultRows').addEventListener('change', ev => {
-  const base = ev.target.matches('[data-currency]') && ev.target.closest('tr').querySelector('[data-base]');
-  if (base) base.hidden = ev.target.value !== '%';
-});
 ['familyRows', 'defaultRows', 'otherDefaultRows'].forEach(id => $(id).addEventListener('change', ev => {
   const tr = ev.target.closest('tr');
   if (tr && [detailsBox(tr), tr.querySelector('[data-flag="showInHistoryDetails"]'), tr.querySelector('[data-flag="showInBlocks"]')].includes(ev.target)) applyDetailsRule(tr);
@@ -485,9 +480,35 @@ $('otherDefaultRows').addEventListener('click', ev => {
   if (ev.target.closest('[data-remove]')) { ev.target.closest('tr').remove(); autoSaveDefaults(); }
 });
 
+function resolveConfigAmounts(container) {
+  const inputs = [...container.querySelectorAll('input[data-amount]:not(:disabled)')];
+  const values = inputs.map(input => {
+    const value = Savings.resolveAmount(input.value, Number(input.dataset.amount));
+    input.setCustomValidity(value === null ? 'Enter an amount, an adjustment such as +4, or a calculation such as 100+4. The result must be zero or greater.' : '');
+    return value;
+  });
+  const invalid = inputs.find(input => !input.validity.valid);
+  if (invalid) { invalid.reportValidity(); return false; }
+  inputs.forEach((input, index) => {
+    input.value = String(values[index]);
+    input.dataset.amount = input.value;
+  });
+  return true;
+}
+
+['familyRows', 'defaultRows', 'otherDefaultRows'].forEach(id => {
+  $(id).addEventListener('input', ev => {
+    if (ev.target.matches('input[data-amount]')) ev.target.setCustomValidity('');
+  });
+  $(id).addEventListener('change', ev => {
+    if (ev.target.matches('input[data-amount]')) resolveConfigAmounts($(id));
+  });
+});
+
 function saveFamily() {
   const rows = [...$('familyRows').querySelectorAll('tr')];
   if (rows.some(row => !row.querySelector('[data-name]').value.trim())) return familyStatus('Enter a name for each person.', false);
+  if (!resolveConfigAmounts($('familyRows'))) return;
   const values = {
     ...AppSettings.load(),
     family: rows.map(row => ({
@@ -509,6 +530,7 @@ function saveDefaults(rerender = true) {
   const rows = [...$('otherDefaultRows').querySelectorAll('tr')];
   const defaultRows = [...$('defaultRows').querySelectorAll('tr')];
   if ([...rows, ...defaultRows].some(row => !row.querySelector('[data-name]').value.trim())) return defStatus('Enter a name for each monthly item.', false);
+  if (!resolveConfigAmounts($('defaultsForm'))) return;
   const values = {
     ...AppSettings.load(),
     defaultRows: defaultRows.map(row => ({
@@ -535,6 +557,7 @@ function saveDefaults(rerender = true) {
       id: row.dataset.id,
       name: row.querySelector('[data-name]').value.trim(),
       currency: row.querySelector('[data-currency]').value,
+      base: row.querySelector('[data-base]').value,
       amount: row.querySelector('[data-amount]').value,
       enabled: row.querySelector('[data-enabled]').checked,
       showInSalary: row.querySelector('[data-show-salary]').checked,

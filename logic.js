@@ -8,6 +8,24 @@ const Savings = (() => {
   const nonNegativeAmount = value => round2(Math.max(0, parseFloat(value) || 0));
   const fmt = n => round2(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+  const resolveAmount = (value, current) => {
+    const text = String(value).trim();
+    if (!text) return 0;
+    const numberPattern = '(?:\\d{1,3}(?:,\\d{3})+(?:\\.\\d*)?|\\d+(?:[.,]\\d*)?|[.,]\\d+)';
+    const expression = text.match(new RegExp(`^(${numberPattern})\\s*([+*/-])\\s*(${numberPattern})$`));
+    const match = expression || text.match(new RegExp(`^([+*/-]?)\\s*(${numberPattern})$`));
+    if (!match) return null;
+    const numberOf = token => Number(/^\d{1,3}(?:,\d{3})+(?:\.\d*)?$/.test(token)
+      ? token.replace(/,/g, '') : token.replace(',', '.'));
+    const base = expression ? numberOf(expression[1]) : current;
+    const operator = expression ? expression[2] : match[1];
+    const operand = numberOf(expression ? expression[3] : match[2]);
+    const operations = { '+': () => base + operand, '-': () => base - operand, '*': () => base * operand, '/': () => base / operand };
+    const result = operator ? operations[operator]() : operand;
+    const rounded = round2(result);
+    return Number.isFinite(rounded) && result >= 0 ? rounded : null;
+  };
+
   const sum = e => round2(FIELDS.reduce((s, f) => s + e[f], 0));
 
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -174,6 +192,7 @@ const Savings = (() => {
     if (row.id === 'rate_5') return taxOf(salaryOf(e), e);
     if (row.id === 'rate_10') return e.tenth || 0;
     const item = (e.otherDefaults || []).find(entry => entry.id === row.id);
+    if (item && item.currency === '%' && item.base === 'net') return round2(afterTenthOf(e) * item.amount / 100);
     return item ? pctOrRaw(e, item.currency, item.amount) : 0;
   };
   // Like Monthly saving: the row's amount plus its income lines minus its spending lines.
@@ -230,7 +249,8 @@ const Savings = (() => {
       if (row.id.startsWith('rate_')) return rates[row.id] || 0;
       const raw = row.id === 'monthly_saving' ? savingOf(e) : row.id === 'monthly_investment' ? investmentOf(e)
         : row.id.startsWith('monthly_pay_') ? payOf(e)[Number(row.id.slice(-1))] : row.id === OTHER ? 0 : row.amount;
-      return currencyToUsd(raw || 0, row.currency || 'USD', rate, foreignRates, salary);
+      const base = row.base === 'net' ? afterTenthOf(e) : salary;
+      return currencyToUsd(raw || 0, row.currency || 'USD', rate, foreignRates, base);
     };
     const amounts = netRowsOf(e).map(usdOf);
     return amounts.some(amount => amount === null) ? null : round2(salary - amounts.reduce((s, amount) => s + amount, 0));
@@ -483,7 +503,7 @@ const Savings = (() => {
           id: fallback.id,
           name: String(row.name || fallback.name).trim() || fallback.name,
           currency: fallback.id === OTHER ? 'USD' : CURRENCIES.includes(row.currency) ? row.currency : fallback.currency,
-          ...(fallback.base ? { base: RATE_BASES.includes(row.base) ? row.base : fallback.base } : {}),
+          ...(RATE_BASES.includes(row.base) ? { base: row.base } : fallback.base ? { base: fallback.base } : {}),
           amount: nonNegative(row.amount, fallback.amount),
           enabled: row.enabled !== false,
           showInSalary: row.showInSalary === true,
@@ -519,6 +539,7 @@ const Savings = (() => {
       if (!/^default_[\w-]+$/.test(id) || !name || seenDefaults.has(id)) return null;
       seenDefaults.add(id);
       return { id, name, currency: CURRENCIES.includes(item.currency) ? item.currency : 'USD', amount: nonNegative(item.amount, 0), enabled: item.enabled !== false,
+        ...(RATE_BASES.includes(item.base) ? { base: item.base } : {}),
         showInSalary: item.showInSalary === true,
         showInSalaryFooter: typeof item.showInSalaryFooter === 'boolean' ? item.showInSalaryFooter : item.showInFooter !== false,
         showInHistory: item.showInHistory === true, showInHistoryDetails: typeof item.showInHistoryDetails === 'boolean' ? item.showInHistoryDetails : item.showInHistory === true, showInDropdown: item.showInDropdown === true, showInBlocks: item.showInBlocks === true, showInFooter: item.showInFooter !== false, includeInTotal: item.includeInTotal === true,
@@ -616,6 +637,13 @@ const Savings = (() => {
   const removeItem = (data, month, kind, id) =>
     mapMonth(data, month, e => ({ ...e, [kind]: itemsOf(e, kind).filter(s => s.id !== id) }));
 
+  const updateItem = (data, month, kind, item, nextKind = kind) =>
+    mapMonth(data, month, entry => {
+      if (!itemsOf(entry, kind).some(saved => saved.id === item.id)) return entry;
+      if (kind === nextKind) return { ...entry, [kind]: itemsOf(entry, kind).map(saved => saved.id === item.id ? { ...saved, ...item } : saved) };
+      return { ...entry, [kind]: itemsOf(entry, kind).filter(saved => saved.id !== item.id), [nextKind]: [...itemsOf(entry, nextKind), item] };
+    });
+
   const toCsv = data => ['Month,Salary,Net salary,10%,After 10%,Me,Wife,Son,Total,Income,Spent,Left',
     ...data.map(e => [e.month, salaryOf(e), netSalaryOf(e), round2(e.tenth || 0), afterTenthOf(e), ...PEOPLE.map(f => round2(e[f])), sum(e), incomeOf(e), spentOf(e), leftOf(e)].join(','))].join('\n');
 
@@ -640,6 +668,7 @@ const Savings = (() => {
   };
   const isValidMonthlyDefault = item => item && /^default_[\w-]+$/.test(item.id) && typeof item.name === 'string'
     && item.name.trim() && CURRENCIES.includes(item.currency) && Number.isFinite(item.amount) && item.amount >= 0
+    && (item.base === undefined || RATE_BASES.includes(item.base))
     && (item.enabled === undefined || typeof item.enabled === 'boolean')
     && (item.showInSalary === undefined || typeof item.showInSalary === 'boolean')
     && (item.showInBlocks === undefined || typeof item.showInBlocks === 'boolean')
@@ -688,6 +717,6 @@ const Savings = (() => {
 
   return {
     FIELDS, ITEM_WHO, PEOPLE, fmt, sum, esc, salaryOf, salaryTotal, defaultRowValue, rowBaseValue, setRateLookup, netSalaryOf, netAfterRatesOf, netRowsOf, netSalaryTotal, tenthFromSalary, withTenth, afterTenthOf, afterTenthTotal, spendingsOf, incomesOf, spentOf, incomeOf, leftOf, spentTotals, incomeTotals, totals,
-    sortDesc, parseAmount, parseSalaryCsv, toSalaryCsv, nextFreeMonth, shiftMonth, copyEntry, upsert, remove, parseEntry, setSalary, MONTHLY_PAY_UAH, MONTHLY_PAY_LABELS, DEFAULT_ROWS, CURRENCIES, currencyToUsd, payOf, setMonthlyPay, setDefaultRows, setOtherDefaults, allocationOf, setAllocation, entryMember, entryFamily, savingOf, setMonthlySaving, savingLeftOf, investmentOf, setMonthlyInvestment, investmentLeftOf, salaryLeftOf, salaryIncomeOf, taxOf, onePercentOf, monthLabel, salaryDateOf, isValidGithubConfig, githubUrl, encodeContent, decodeContent, encryptText, decryptText, isEncrypted, rateDate, prevDate, uahToUsd, TENTH_SPEND_UAH, addTenthSpending, DEFAULT_SETTINGS, normalizeSettings, parseItem, addItem, removeItem, toCsv, BACKUP_FORMAT, createBackup, isValidBackup
+    sortDesc, parseAmount, resolveAmount, parseSalaryCsv, toSalaryCsv, nextFreeMonth, shiftMonth, copyEntry, upsert, remove, parseEntry, setSalary, MONTHLY_PAY_UAH, MONTHLY_PAY_LABELS, DEFAULT_ROWS, CURRENCIES, currencyToUsd, payOf, setMonthlyPay, setDefaultRows, setOtherDefaults, allocationOf, setAllocation, entryMember, entryFamily, savingOf, setMonthlySaving, savingLeftOf, investmentOf, setMonthlyInvestment, investmentLeftOf, salaryLeftOf, salaryIncomeOf, taxOf, onePercentOf, monthLabel, salaryDateOf, isValidGithubConfig, githubUrl, encodeContent, decodeContent, encryptText, decryptText, isEncrypted, rateDate, prevDate, uahToUsd, TENTH_SPEND_UAH, addTenthSpending, DEFAULT_SETTINGS, normalizeSettings, parseItem, addItem, removeItem, updateItem, toCsv, BACKUP_FORMAT, createBackup, isValidBackup
   };
 })();

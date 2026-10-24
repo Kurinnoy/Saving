@@ -67,6 +67,87 @@ function eq(actual, expected) {
 const E = (month, me = 0, wife = 0, son = 0, tenth = 0) => ({ month, me, wife, son, tenth });
 const S = (id, who, amount, note = '') => ({ id, who, note, amount });
 
+describe('Amount calculations', () => {
+  it('accepts a replacement amount', () => eq(Savings.resolveAmount('25.50', 100), 25.5));
+  it('adds to the current amount', () => eq(Savings.resolveAmount('+4', 100), 104));
+  it('subtracts from the current amount', () => eq(Savings.resolveAmount('-4', 100), 96));
+  it('multiplies the current amount', () => eq(Savings.resolveAmount('*2', 100), 200));
+  it('divides the current amount', () => eq(Savings.resolveAmount('/2', 100), 50));
+  it('adds an appended amount', () => eq(Savings.resolveAmount('100+4', 10), 104));
+  it('accepts spaces in a calculation', () => eq(Savings.resolveAmount('100 - 4', 10), 96));
+  it('accepts decimal commas', () => eq(Savings.resolveAmount('100,5+4,5', 10), 105));
+  it('accepts the grouped replacement from Other', () => eq(Savings.resolveAmount('1,253.65', 1900), 1253.65));
+  it('accepts grouped whole numbers', () => eq(Savings.resolveAmount('1,253', 1900), 1253));
+  it('accepts multiple thousands separators', () => eq(Savings.resolveAmount('1,234,567.89', 0), 1234567.89));
+  it('accepts grouped adjustments', () => eq(Savings.resolveAmount('+1,253.65', 100), 1353.65));
+  it('accepts calculations with grouped numbers', () => eq(Savings.resolveAmount('1,253.65+10', 100), 1263.65));
+  it('rejects incorrectly grouped numbers', () => eq(Savings.resolveAmount('12,53.65', 100), null));
+  it('rounds the result to cents', () => eq(Savings.resolveAmount('0.1+0.2', 10), 0.3));
+  it('does not adjust an already calculated result again', () => eq(Savings.resolveAmount('104', 104), 104));
+  it('rejects division by zero', () => eq(Savings.resolveAmount('100/0', 10), null));
+  it('rejects a negative result', () => eq(Savings.resolveAmount('-101', 100), null));
+  it('rejects malformed calculations', () => eq(Savings.resolveAmount('100++4', 100), null));
+  it('rejects trailing text', () => eq(Savings.resolveAmount('100+4abc', 100), null));
+  it('saves an empty value as zero', () => eq(Savings.resolveAmount('', 100), 0));
+  it('saves whitespace as zero', () => eq(Savings.resolveAmount('   ', 100), 0));
+  it('rejects an operator without an amount', () => eq(Savings.resolveAmount('+', 100), null));
+});
+
+describe('Edit History items', () => {
+  const entry = { month: '2000-01', incomes: [S('income', 'me', 25)], spendings: [S('first', 'me', 100, 'Original'), S('second', 'wife', 50)] };
+  it('updates the existing item without duplicates or reordering', () => {
+    const result = Savings.updateItem([entry], entry.month, 'spendings', S('first', 'son', 110, 'Edited'));
+    eq(result[0].spendings, [S('first', 'son', 110, 'Edited'), entry.spendings[1]]);
+    eq(result[0].incomes, entry.incomes);
+  });
+  it('does not mutate the original item', () => {
+    Savings.updateItem([entry], entry.month, 'spendings', S('first', 'me', 10));
+    eq(entry.spendings[0], S('first', 'me', 100, 'Original'));
+  });
+  it('moves spending to income while preserving the item ID', () => {
+    const result = Savings.updateItem([entry], entry.month, 'spendings', S('first', 'me', 105), 'incomes');
+    eq(result[0].spendings, [entry.spendings[1]]);
+    eq(result[0].incomes, [...entry.incomes, S('first', 'me', 105)]);
+  });
+  it('moves income to spending', () => {
+    const result = Savings.updateItem([entry], entry.month, 'incomes', S('income', 'me', 30), 'spendings');
+    eq(result[0].incomes, []);
+    eq(result[0].spendings, [...entry.spendings, S('income', 'me', 30)]);
+  });
+  it('does not create an item if the edited item was removed', () => {
+    eq(Savings.updateItem([entry], entry.month, 'spendings', S('missing', 'me', 10)), [entry]);
+  });
+  it('leaves other months unchanged', () => {
+    eq(Savings.updateItem([entry], '2000-02', 'spendings', S('first', 'me', 10)), [entry]);
+  });
+});
+
+describe('Custom deduction base', () => {
+  const custom = { id: 'default_esf', name: 'ESF', currency: 'UAH', amount: 400, enabled: true, inNetSalary: true, base: 'net' };
+  it('preserves the base on the built-in ESF row', () => {
+    const esf = DEFAULT_ROWS.find(row => row.id === 'monthly_pay_4');
+    ['salary', 'net'].forEach(base => {
+      const settings = normalizeSettings({ defaultRows: [{ ...esf, base }] });
+      eq(settings.defaultRows.find(row => row.id === esf.id).base, base);
+    });
+  });
+  it('preserves the selected base in settings', () => {
+    eq(normalizeSettings({ otherDefaults: [custom] }).otherDefaults[0].base, 'net');
+  });
+  it('subtracts a fixed currency amount from salary', () => {
+    eq(Savings.netAfterRatesOf({ salary: 1000, defaultRows: [], otherDefaults: [custom] }, 40), 990);
+  });
+  it('calculates custom percentages from net salary', () => {
+    const entry = {
+      salary: 1000,
+      defaultRows: [{ id: 'rate_1', currency: '%', amount: 10, enabled: true, base: 'salary', inNetSalary: true }],
+      otherDefaults: [{ ...custom, currency: '%', amount: 10 }]
+    };
+    eq(Savings.rowBaseValue(entry, entry.otherDefaults[0]), 90);
+    eq(Savings.netAfterRatesOf(entry, 40), 810);
+  });
+});
+
 describe('fmt', () => {
   it('formats with two decimals', () => eq(fmt(5), '5.00'));
   it('adds thousands separator', () => eq(fmt(1234.5), '1,234.50'));

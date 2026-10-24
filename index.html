@@ -36,6 +36,9 @@
   .items th, .items td { text-align: left; }
   .items td.amt, .items th.amt { text-align: right; }
   .items .who { font-weight: bold; }
+  .items .actions { white-space: nowrap; }
+  .yearGroup td { background: #eef3ff; font-weight: bold; }
+  .yearGroup button { padding: 4px 8px; font-size: 14px; }
   .items tr.fixed td { color: #555; }
   .items tr.income td.type { color: #1a7a35; }
   .items tr.spending td.type { color: #d33; }
@@ -75,8 +78,8 @@
     <div class="scroll">
       <table id="table">
         <thead>
-          <tr id="foot"></tr>
           <tr id="headRow"></tr>
+          <tr id="foot"></tr>
         </thead>
         <tbody id="rows"></tbody>
       </table>
@@ -173,11 +176,11 @@ function refreshHistoryHead() {
   COLUMNS = [...historyPeople.map(person => person.id), ...(tenthInHistory ? ['tenth'] : [])];
   HEAD = [
     ['month', 'Month', e => e.month],
+    ['total', 'Total', rowTotal],
     ...historyPeople.map(person => [person.id, person.name, e => leftOf(e, person.id, family)]),
     ...(tenthInHistory ? [['tenth', '10%', e => leftOf(e, 'tenth', family)]] : []),
     ...historyDefaultRows.map(row => [row.id, `${row.name} (${row.currency === '%' ? 'USD' : row.currency})`, e => defaultRowValue(e, row)]),
-    ...historyOtherRows.map(row => [row.id, `${row.name} (${row.currency === '%' ? 'USD' : row.currency})`, e => defaultRowValue(e, row)]),
-    ['total', 'Total', rowTotal]
+    ...historyOtherRows.map(row => [row.id, `${row.name} (${row.currency === '%' ? 'USD' : row.currency})`, e => defaultRowValue(e, row)])
   ];
   sortValue = Object.fromEntries(HEAD.map(([key, , value]) => [key, value]));
   if (!sortValue[sort.key]) sort = { key: 'month', dir: 'desc' };
@@ -189,22 +192,27 @@ const sortData = arr => {
   const value = sortValue[sort.key];
   const dir = sort.dir === 'asc' ? 1 : -1;
   return [...arr].sort((a, b) => {
+    const yearOrder = b.month.slice(0, 4).localeCompare(a.month.slice(0, 4));
+    if (yearOrder) return sort.key === 'month' && sort.dir === 'asc' ? -yearOrder : yearOrder;
     const va = value(a), vb = value(b);
     const cmp = typeof va === 'string' ? va.localeCompare(vb) : va - vb;
     return cmp * dir;
   });
 };
 
+const editingItems = new Map();
+const expandedYears = new Set();
+
 // One Income/Spending line of the details table; fixed lines come from My salary and cannot be deleted.
 function itemRow(e, kind, s, fixed) {
   const income = kind === 'incomes';
-  const action = fixed ? '' : `<button class="danger" data-delitem="${esc(s.id)}" data-kind="${kind}" data-month="${e.month}">Delete</button>`;
+  const action = fixed ? '' : `<button type="button" class="edit" data-edititem="${esc(s.id)}" data-kind="${kind}" data-month="${e.month}">Edit</button> <button type="button" class="danger" data-delitem="${esc(s.id)}" data-kind="${kind}" data-month="${e.month}">Delete</button>`;
   return `<tr class="${income ? 'income' : 'spending'}${fixed ? ' fixed' : ''}">
     <td class="type">${income ? 'Income' : 'Spending'}</td>
     <td class="who">${esc(LABELS[s.who] || s.who)}</td>
     <td>${esc(s.note)}</td>
     <td class="amt">${fmt(s.amount)}</td>
-    <td>${action}</td>
+    <td class="actions">${action}</td>
   </tr>`;
 }
 
@@ -230,14 +238,19 @@ function detailsTable(e) {
 function detailsHtml(e) {
   const day = Savings.rateDate(e.month);
   const dateValue = `${day.slice(0, 4)}-${day.slice(4, 6)}-${day.slice(6, 8)}`;
+  const editing = editingItems.get(e.month);
+  const item = editing && (e[editing.kind] || []).find(saved => saved.id === editing.id);
+  const options = item && !whoOptions.some(([id]) => id === item.who)
+    ? [...whoOptions, [item.who, LABELS[item.who] || item.who]] : whoOptions;
   const form = `<form class="spendForm" data-month="${e.month}">
-    <label class="incomeToggle"><input type="checkbox" name="income"> Income</label>
-    <select name="who">${whoOptions.map(([id, label]) => `<option value="${esc(id)}">${esc(label)}</option>`).join('')}</select>
-    <input name="note" placeholder="Note">
-    <input name="amount" type="number" min="0.01" step="0.01" placeholder="Amount" required>
+    <label class="incomeToggle"><input type="checkbox" name="income" ${item && editing.kind === 'incomes' ? 'checked' : ''}> Income</label>
+    <select name="who" aria-label="Who">${options.map(([id, label]) => `<option value="${esc(id)}" ${item && item.who === id ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>
+    <input name="note" aria-label="Note" placeholder="${item && item.who === 'other' ? 'Description' : 'Note'}" value="${esc(item ? item.note : '')}" ${item && item.who === 'other' ? 'required' : ''}>
+    <input name="amount" type="text" inputmode="text" aria-label="Amount" data-amount="${item ? item.amount : 0}" value="${item ? item.amount : ''}" placeholder="Amount" required>
     <select name="currency" aria-label="Currency">${['USD', 'UAH', 'EUR'].map(code => `<option value="${code}">${code}</option>`).join('')}</select>
     <input name="date" type="date" value="${dateValue}" aria-label="Date" required>
-    <button type="submit">Add</button>
+    <button type="submit">${item ? 'Save' : 'Add'}</button>
+    ${item ? `<button type="button" class="secondary" data-cancelitem="${e.month}">Cancel</button>` : ''}
   </form>`;
   return `<tr class="child"><td colspan="${HEAD.length + 1}"><div class="detailsBox">${form}${detailsTable(e)}</div></td></tr>`;
 }
@@ -265,22 +278,38 @@ function render() {
   ];
   const totalBlock = blocks.some(block => block.inTotal)
     ? `<div class="total all"><span>Total</span><strong>${money(blocks.filter(block => block.inTotal).reduce((s, block) => s + block.value, 0))}</strong></div>` : '';
-  $('totals').innerHTML = blocks.map(block => `<div class="total"><span>${esc(block.label)}</span><strong>${money(block.value)}</strong>${block.extra}</div>`).join('') + totalBlock;
+  $('totals').innerHTML = totalBlock + blocks.map(block => `<div class="total"><span>${esc(block.label)}</span><strong>${money(block.value)}</strong>${block.extra}</div>`).join('');
 
-  $('rows').innerHTML = data.map(e => `
+  const footerShown = f => f === 'tenth' ? tenthInFooter : footerIds.has(f);
+  const years = new Map();
+  data.forEach(entry => {
+    const year = entry.month.slice(0, 4);
+    if (!years.has(year)) years.set(year, []);
+    years.get(year).push(entry);
+  });
+  $('rows').innerHTML = [...years].map(([year, entries]) => {
+    const collapsed = !expandedYears.has(year);
+    const group = `<tr class="yearGroup">
+      <td><button type="button" class="secondary" data-year="${year}" aria-expanded="${!collapsed}" aria-label="${collapsed ? 'Expand' : 'Collapse'} ${year}">${collapsed ? '&#9656;' : '&#9662;'} ${year}</button></td>
+      <td><strong>${money(entries.reduce((sum, entry) => sum + rowTotal(entry), 0))}</strong></td>
+      ${COLUMNS.map(id => `<td>${footerShown(id) ? money(entries.reduce((sum, entry) => sum + leftOf(entry, id, family), 0)) : ''}</td>`).join('')}
+      ${[...historyDefaultRows, ...historyOtherRows].map(row => `<td>${footerIds.has(row.id) ? money(entries.reduce((sum, entry) => sum + defaultRowValue(entry, row), 0)) : ''}</td>`).join('')}
+      <td></td>
+    </tr>`;
+    return group + (collapsed ? '' : entries.map(e => `
     <tr>
       <td>${monthLabel(e.month)}</td>
+      <td><strong>${money(rowTotal(e))}</strong></td>
       ${COLUMNS.map(f => `<td>${money(leftOf(e, f, family))}</td>`).join('')}
       ${[...historyDefaultRows, ...historyOtherRows].map(row => `<td>${money(defaultRowValue(e, row))}</td>`).join('')}
-      <td><strong>${money(rowTotal(e))}</strong></td>
       <td>
         <button class="spend" data-spend="${e.month}">Income/Spending (${incomesOf(e).length}/${spendingsOf(e).length})</button>
       </td>
-    </tr>${open.has(e.month) ? detailsHtml(e) : ''}`).join('') || `<tr><td colspan="${HEAD.length + 1}">No data yet</td></tr>`;
+    </tr>${open.has(e.month) ? detailsHtml(e) : ''}`).join(''));
+  }).join('') || `<tr><td colspan="${HEAD.length + 1}">No data yet</td></tr>`;
 
-  const footerShown = f => f === 'tenth' ? tenthInFooter : footerIds.has(f);
   $('foot').innerHTML = data.length
-    ? `<td>Total</td>${COLUMNS.map(f => `<td>${footerShown(f) ? money(data.reduce((s, e) => s + leftOf(e, f, family), 0)) : ''}</td>`).join('')}${[...historyDefaultRows, ...historyOtherRows].map(row => `<td>${footerIds.has(row.id) ? money(data.reduce((s, e) => s + defaultRowValue(e, row), 0)) : ''}</td>`).join('')}<td><strong>${money(data.reduce((s, e) => s + rowTotal(e), 0))}</strong></td><td></td>`
+    ? `<td>Total</td><td><strong>${money(data.reduce((s, e) => s + rowTotal(e), 0))}</strong></td>${COLUMNS.map(f => `<td>${footerShown(f) ? money(data.reduce((s, e) => s + leftOf(e, f, family), 0)) : ''}</td>`).join('')}${[...historyDefaultRows, ...historyOtherRows].map(row => `<td>${footerIds.has(row.id) ? money(data.reduce((s, e) => s + defaultRowValue(e, row), 0)) : ''}</td>`).join('')}<td></td>`
     : '';
 }
 
@@ -288,6 +317,8 @@ $('clearHistory').addEventListener('click', () => {
   if (!data.length || !confirm('Delete all months, including their income and spending? This also empties My salary.')) return;
   data = [];
   open.clear();
+  editingItems.clear();
+  expandedYears.clear();
   GitSync.allowEmptyOnce();
   persist();
   render();
@@ -309,17 +340,23 @@ async function fetchNbuRate(currency, isoDate) {
 $('rows').addEventListener('submit', async ev => {
   ev.preventDefault();
   const f = ev.target;
+  if (!f.classList.contains('spendForm') || f.dataset.saving === 'true') return;
   const { currency, date } = { currency: f.currency.value, date: f.date.value };
-  const typed = parseFloat(f.amount.value);
+  const typed = Savings.resolveAmount(f.amount.value, Number(f.amount.dataset.amount));
+  f.amount.setCustomValidity(typed === null || typed <= 0 ? 'Enter an amount greater than zero, an adjustment such as +10, or a calculation such as 100+10.' : '');
+  if (!f.reportValidity()) return;
+  const editing = editingItems.get(f.dataset.month);
+  const button = f.querySelector('button[type=submit]');
+  f.dataset.saving = 'true';
+  button.disabled = true;
   let amount = typed;
   if (currency !== 'USD' && typed > 0) {
-    const button = f.querySelector('button[type=submit]');
-    button.disabled = true;
     try {
       const usdRate = await fetchNbuRate('USD', date);
       const foreign = currency === 'UAH' ? {} : { [currency]: await fetchNbuRate(currency, date) };
       amount = Savings.currencyToUsd(typed, currency, usdRate, foreign);
     } catch {
+      delete f.dataset.saving;
       button.disabled = false;
       alert(`Could not get the ${currency} exchange rate for ${date}.`);
       return;
@@ -327,11 +364,20 @@ $('rows').addEventListener('submit', async ev => {
   }
   const label = currency === 'USD' ? date : `${typed} ${currency}, ${date}`;
   const note = [f.note.value.trim(), `(${label})`].filter(Boolean).join(' ');
-  const spending = parseItem({ who: f.who.value, note: f.note.value.trim() ? note : label, amount }, PEOPLE);
-  if (!spending) { f.querySelector('button[type=submit]').disabled = false; return; }
-  data = addItem(data, f.dataset.month, f.income.checked ? 'incomes' : 'spendings', spending);
+  const savedNote = editing && currency === 'USD' ? f.note.value.trim() : f.note.value.trim() ? note : label;
+  const spending = parseItem({ who: f.who.value, note: savedNote, amount }, PEOPLE);
+  if (!spending) { delete f.dataset.saving; button.disabled = false; return; }
+  const kind = f.income.checked ? 'incomes' : 'spendings';
+  data = editing
+    ? Savings.updateItem(data, f.dataset.month, editing.kind, { ...spending, id: editing.id }, kind)
+    : addItem(data, f.dataset.month, kind, spending);
+  editingItems.delete(f.dataset.month);
   persist();
   render();
+});
+
+$('rows').addEventListener('input', ev => {
+  if (ev.target.matches('.spendForm input[name="amount"]')) ev.target.setCustomValidity('');
 });
 
 $('rows').addEventListener('change', ev => {
@@ -341,13 +387,26 @@ $('rows').addEventListener('change', ev => {
 });
 
 $('rows').addEventListener('click', ev => {
-  const { spend, delitem, kind, month } = ev.target.dataset;
-  if (spend) {
+  const { spend, delitem, edititem, cancelitem, kind, month, year } = ev.target.dataset;
+  if (year) {
+    expandedYears.has(year) ? expandedYears.delete(year) : expandedYears.add(year);
+    render();
+  } else if (spend) {
     open.has(spend) ? open.delete(spend) : open.add(spend);
     render();
   } else if (delitem) {
     data = removeItem(data, month, kind, delitem);
+    if (editingItems.get(month)?.id === delitem) editingItems.delete(month);
     persist();
+    render();
+  } else if (edititem) {
+    editingItems.set(month, { id: edititem, kind });
+    render();
+    const amount = document.querySelector(`.spendForm[data-month="${month}"] input[name="amount"]`);
+    amount.focus();
+    amount.select();
+  } else if (cancelitem) {
+    editingItems.delete(cancelitem);
     render();
   }
 });
