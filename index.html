@@ -34,7 +34,7 @@
   tr.child td { text-align: left; background: #fafafa; }
   .items { margin-bottom: 10px; }
   .items th, .items td { text-align: left; }
-  .items td.amt, .items th.amt { text-align: right; }
+  .items td.amt, .items th.amt { width: 190px; min-width: 190px; padding-left: 4px; padding-right: 4px; text-align: right; white-space: nowrap; }
   .items .who { font-weight: bold; }
   .items .actions { white-space: nowrap; }
   .yearGroup td { background: #eef3ff; font-weight: bold; }
@@ -50,6 +50,7 @@
   .incomeToggle { display: flex; align-items: center; gap: 4px; font-size: 14px; color: #222; cursor: pointer; }
   table { width: 100%; border-collapse: collapse; }
   .scroll > table { table-layout: fixed; }
+  #headRow th, #foot td, #rows > tr:not(.child) > td { padding-left: 4px; padding-right: 4px; }
   #headRow th { white-space: normal; overflow-wrap: anywhere; }
   #rows > tr:not(.child) > td { overflow-wrap: anywhere; }
   th, td { padding: 8px; text-align: right; border-bottom: 1px solid #e3e3e3; }
