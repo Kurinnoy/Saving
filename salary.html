@@ -378,6 +378,9 @@ function render() {
   document.body.appendChild(actions);
   widths.push(Math.ceil(actions.getBoundingClientRect().width) + 16);
   actions.remove();
+  const availableWidth = document.querySelector('.scroll').clientWidth;
+  const contentWidth = widths.reduce((sum, width) => sum + width, 0);
+  widths[widths.length - 1] += Math.max(0, availableWidth - contentWidth);
   headers.forEach((cell, index) => { cell.style.width = `${widths[index]}px`; });
   table.style.setProperty('--first-column-width', `${widths[0]}px`);
   table.style.width = `${widths.reduce((sum, width) => sum + width, 0)}px`;

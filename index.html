@@ -100,7 +100,7 @@
 <script src="settings.js"></script>
 <script>
 const KEY = 'familySavings';
-const { fmt, salaryOf, salaryIncomeOf, defaultRowValue, rowBaseValue, allocationOf, withTenth, esc, spendingsOf, incomesOf, spentOf, incomeOf, leftOf,
+const { fmt, salaryOf, salaryIncomeOf, investmentOf, defaultRowValue, rowBaseValue, allocationOf, withTenth, esc, spendingsOf, incomesOf, spentOf, incomeOf, leftOf,
   parseItem, addItem, removeItem, investmentLeftOf, savingLeftOf, monthLabel } = Savings;
 let family = [];
 let PEOPLE = [];
@@ -232,7 +232,9 @@ function detailsTable(e) {
     family.filter(person => shown(person, 'showInHistoryDetails') && person.showIncome === true).forEach(person => rows.push(itemRow(e, 'incomes', { who: person.id, note: 'From My salary', amount: salaryIncomeOf(e, person.id, family) }, true)));
     // Saving, investment and the 10% are money set aside (income); every other monthly row is money going out.
     detailRows.filter(row => row.showIncome === true || !['monthly_saving', 'monthly_investment', 'rate_10'].includes(row.id)).forEach(row => rows.push(itemRow(e, ['monthly_saving', 'monthly_investment', 'rate_10'].includes(row.id) ? 'incomes' : 'spendings',
-      { who: row.name, note: `From My salary (${row.currency === '%' ? 'USD' : row.currency})`, amount: rowBaseValue(e, row) }, true)));
+      { who: row.name, note: `From My salary (${row.currency === '%' ? 'USD' : row.currency})`, amount: row.id === 'monthly_investment'
+        ? row.currency === '%' ? salaryOf(e) * investmentOf(e) / 100 : investmentOf(e)
+        : rowBaseValue(e, row) }, true)));
   }
   incomesOf(e).forEach(s => rows.push(itemRow(e, 'incomes', s, false)));
   spendingsOf(e).forEach(s => rows.push(itemRow(e, 'spendings', s, false)));
