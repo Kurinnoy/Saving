@@ -50,6 +50,9 @@ const GitSync = (() => {
     if (!c.password) throw new Error('Set an encryption password on the Config page: data is only sent to GitHub encrypted.');
     if (sessionStorage.getItem(KEY) === null) throw new Error('No data is loaded in this session.');
     const existing = await getFile(c);
+    if (existing && sessionStorage.getItem(SYNCED_KEY) !== '1') {
+      throw new Error('Load the data from GitHub first: this session has not loaded it yet');
+    }
     if (existing && !allowEmpty && data().length === 0 && (await fetchRemote(c)).data.length > 0) {
       throw new Error('Refusing to replace the data in GitHub with an empty list');
     }
@@ -147,23 +150,13 @@ const GitSync = (() => {
       : { data: remote.data, settings: remote.settings };
   }
 
-  // First auto-save from this session: never overwrite GitHub months this session does not have.
-  async function checkBeforeFirstPush(c) {
-    const remote = await fetchRemote(c);
-    const local = new Set(data().map(e => e.month));
-    if (remote.data.some(e => !local.has(e.month))) {
-      throw new Error('GitHub has data this session does not have: reload the page or load it on the Config page');
-    }
-  }
-
   async function flush() {
     if (running) { again = true; return; }
-    const c = config();
     running = true;
-    show('Saving to GitHub...', true);
     try {
-      if (!allowEmpty && sessionStorage.getItem(SYNCED_KEY) !== '1') await checkBeforeFirstPush(c);
-      await push(c);
+      await ready();
+      show('Saving to GitHub...', true);
+      await push(config());
       allowEmpty = false;
       show('Saved to GitHub', true);
     } catch (err) {
@@ -194,19 +187,19 @@ const GitSync = (() => {
     const unsent = sessionStorage.getItem(UNSENT_KEY) !== null;
     sessionStorage.removeItem(UNSENT_KEY);
     const old = localStorage.getItem(KEY);
-    let migrated = unsent;
     if (old !== null) {
-      if (sessionStorage.getItem(KEY) === null) { sessionStorage.setItem(KEY, old); migrated = true; }
+      if (sessionStorage.getItem(KEY) === null) sessionStorage.setItem(KEY, old);
       localStorage.removeItem(KEY);
       localStorage.removeItem(SYNCED_KEY);
     }
-    if (sessionStorage.getItem(KEY) !== null) {
-      if (migrated) schedule();
-      return;
-    }
     const c = config();
     if (!isValidGithubConfig(c)) {
-      show('Not connected to GitHub: data is lost when this tab closes', false);
+      if (sessionStorage.getItem(KEY) === null) show('Not connected to GitHub: data is lost when this tab closes', false);
+      return;
+    }
+    // Data already loaded from GitHub in this session; only then may pending changes be sent.
+    if (sessionStorage.getItem(KEY) !== null && sessionStorage.getItem(SYNCED_KEY) === '1') {
+      if (unsent) schedule();
       return;
     }
     if (!c.password) await askPassword();
@@ -235,14 +228,14 @@ const GitSync = (() => {
     sessionStorage.setItem(NAV_KEY, '1');
     setTimeout(() => sessionStorage.removeItem(NAV_KEY), 2000);
   });
-  // Changes still waiting to be sent survive the end of a session.
+  // Changes still waiting to be sent are picked up by the next page of the same session.
   addEventListener('pagehide', () => { if (timer || running) sessionStorage.setItem(UNSENT_KEY, '1'); });
   addEventListener('pageshow', ev => { if (ev.persisted) location.reload(); });
 
   // Runs as soon as this script loads, before any page reads the settings or the password.
   // A session only continues when the page was opened by a link inside the app (or browser back right away);
   // any other load, such as a reload or a page restored after restarting the window, ends it:
-  // the password goes, and so does the data unless changes are still unsent.
+  // the password and the data go, and the next page loads the data from GitHub before anything is saved.
   const ALIVE_KEY = 'lastAlive';
   const AWAY_MS = 2500;
   const SHORT_HIDE_MS = 2000;
@@ -255,21 +248,21 @@ const GitSync = (() => {
 
     if (!internal && !back) {
       sessionStorage.removeItem(PW_KEY);
-      if (sessionStorage.getItem(UNSENT_KEY) === null) {
-        sessionStorage.removeItem(KEY);
-        sessionStorage.removeItem(SYNCED_KEY);
-      }
+      sessionStorage.removeItem(UNSENT_KEY);
+      sessionStorage.removeItem(KEY);
+      sessionStorage.removeItem(SYNCED_KEY);
     }
     // Reload Window in VS Code hides and re-shows the page within a moment without reloading it.
     let hiddenAt = 0;
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return; }
       if (!hiddenAt || Date.now() - hiddenAt > SHORT_HIDE_MS) return;
+      clearTimeout(timer);
+      timer = null;
       sessionStorage.removeItem(PW_KEY);
-      if (!timer && !running) {
-        sessionStorage.removeItem(KEY);
-        sessionStorage.removeItem(SYNCED_KEY);
-      }
+      sessionStorage.removeItem(UNSENT_KEY);
+      sessionStorage.removeItem(KEY);
+      sessionStorage.removeItem(SYNCED_KEY);
       location.reload();
     });
 
