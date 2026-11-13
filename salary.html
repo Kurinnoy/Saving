@@ -9,6 +9,10 @@
   html { scrollbar-gutter: stable; }
   body { font-family: system-ui, sans-serif; margin: 0; background: #f3f5f9; color: #222; }
   main { width: 90%; margin: 0 auto; padding: 20px; }
+  @media (max-width: 600px) {
+    main { width: 100%; padding: 8px; }
+    .card { padding: 10px; }
+  }
   h1 { margin-top: 0; }
   nav { margin-bottom: 16px; display: flex; gap: 16px; }
   nav a { color: #2f6fed; text-decoration: none; font-weight: bold; }
@@ -59,6 +63,141 @@
   .calc input { width: 100%; padding: 4px 6px; font-size: 14px; }
   .calc .save { grid-column: 1 / -1; align-items: flex-start; flex-direction: row; flex-wrap: wrap; gap: 8px; }
   @media (max-width: 600px) { .calc { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 600px) {
+    .scroll { overflow: visible; max-height: none; scrollbar-gutter: auto; }
+    .scroll > table { display: block; width: 100% !important; table-layout: auto; }
+    .scroll > table > thead { display: block; background: #fff; }
+    #salaryHead { display: none; }
+    #rows { display: block; }
+    #rows > tr:not(.child):not(.yearGroup) {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+      margin-bottom: 10px;
+      padding: 10px;
+      border: 1px solid #dfe3e8;
+      border-radius: 8px;
+      background: #fff;
+    }
+    #rows > tr:not(.child):not(.yearGroup) > td {
+      position: static;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 2px;
+      min-width: 0;
+      padding: 7px;
+      border: 0;
+      border-radius: 4px;
+      background: #f4f6f8;
+      box-shadow: none;
+      text-align: left;
+      overflow-wrap: anywhere;
+    }
+    #rows > tr:not(.child):not(.yearGroup) > td::before,
+    #foot td::before,
+    #rows > tr.yearGroup > td:not(:first-child)::before {
+      content: attr(data-label);
+      color: #687078;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    #rows > tr:not(.child):not(.yearGroup) > td:first-child {
+      justify-content: center;
+      padding-left: 0;
+      background: transparent;
+      font-size: 16px;
+      font-weight: 700;
+    }
+    #rows > tr:not(.child):not(.yearGroup) > td:first-child::before { content: none; }
+    #rows > tr:not(.child):not(.yearGroup) > td:nth-child(2) {
+      align-items: flex-end;
+      background: transparent;
+      color: #1a7a35;
+      font-size: 18px;
+      font-weight: 700;
+      text-align: right;
+    }
+    #rows > tr:not(.child):not(.yearGroup) > td.rowActions {
+      display: grid;
+      grid-column: 1 / -1;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+      padding: 0;
+      background: transparent;
+    }
+    #rows > tr:not(.child):not(.yearGroup) > td.rowActions::before { content: none; }
+    #rows > tr:not(.child):not(.yearGroup) > td.rowActions button { width: 100%; }
+    #rows > tr.yearGroup {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+      margin: 4px 0 8px;
+      padding: 10px;
+      border-radius: 8px;
+      background: #eef3ff;
+    }
+    #rows > tr.yearGroup > td {
+      position: static;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      width: auto !important;
+      min-width: 0;
+      padding: 7px;
+      border: 0;
+      border-radius: 4px;
+      background: #fff;
+      box-shadow: none;
+      text-align: left;
+      overflow-wrap: anywhere;
+    }
+    #rows > tr.yearGroup > td:nth-child(-n+2) {
+      position: static;
+      left: auto;
+      right: auto;
+      z-index: auto;
+      box-shadow: none;
+    }
+    #rows > tr.yearGroup > td:first-child {
+      grid-column: 1 / -1;
+      padding: 0;
+      background: transparent;
+    }
+    #rows > tr.yearGroup > td:first-child::before { content: none; }
+    #rows > tr.yearGroup > td:first-child button {
+      width: 100%;
+      background: transparent;
+      color: #222;
+      font-weight: 700;
+      text-align: left;
+    }
+    #rows > tr.yearGroup > td:empty { display: none; }
+    #foot {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+      margin-bottom: 12px;
+      background: #fff;
+    }
+    #foot td {
+      position: static;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      padding: 8px;
+      border: 0;
+      border-radius: 4px;
+      background: #eef2f5;
+      box-shadow: none;
+      text-align: left;
+      overflow-wrap: anywhere;
+    }
+    #foot td:first-child, #foot td:last-child, #foot td:empty { display: none; }
+    #rows > tr.child { display: block; margin-bottom: 10px; }
+    #rows > tr.child > td { display: block; padding: 10px 0; }
+    .calc { width: auto; min-width: 0; }
+  }
 </style>
 </head>
 <body>
@@ -344,10 +483,11 @@ function render() {
     return member.currency === '%' ? Savings.salaryIncomeOf(e, col.id, family) : allocationOf(e, family)[col.id] || 0;
   };
   const colCount = columns.length + 5;
+  const columnLabel = row => `${row.name}${['USD', '%'].includes(row.currency) ? '' : ` (${row.currency})`}`;
   $('salaryHead').innerHTML = '<th>Date</th><th>Salary</th><th>Net salary</th><th>Spending</th>' +
-    columns.map(row => `<th>${esc(row.name)}${['USD', '%'].includes(row.currency) ? '' : ` (${esc(row.currency)})`}</th>`).join('') + '<th></th>';
+    columns.map(row => `<th>${esc(columnLabel(row))}</th>`).join('') + '<th></th>';
 
-  const totalCells = entries => `<td>${fmt(salaryTotal(entries))}</td><td>${leftTotalHtml(entries, netState)}</td><td>${leftTotalHtml(entries)}</td>${columns.map(row => `<td>${row.showInSalaryFooter !== false ? fmt(entries.reduce((sum, entry) => sum + columnValue(entry, row), 0)) : ''}</td>`).join('')}<td></td>`;
+  const totalCells = entries => `<td data-label="Salary">${fmt(salaryTotal(entries))}</td><td data-label="Net salary">${leftTotalHtml(entries, netState)}</td><td data-label="Spending">${leftTotalHtml(entries)}</td>${columns.map(row => `<td data-label="${esc(columnLabel(row))}">${row.showInSalaryFooter !== false ? fmt(entries.reduce((sum, entry) => sum + columnValue(entry, row), 0)) : ''}</td>`).join('')}<td class="rowActions" data-label="Actions"></td>`;
   const years = new Map();
   rows.forEach(entry => {
     const year = entry.month.slice(0, 4);
@@ -389,12 +529,12 @@ function render() {
     const group = `<tr class="yearGroup"><td><button type="button" class="secondary" data-year="${year}" aria-expanded="${!collapsed}" aria-label="${collapsed ? 'Expand' : 'Collapse'} ${year}">${collapsed ? '&#9656;' : '&#9662;'} ${year}</button></td>${totalCells(entries)}</tr>`;
     return group + (collapsed ? '' : entries.map(e => `
     <tr>
-      <td>${esc(salaryDateLabel(e))}</td>
-      <td>${fmt(salaryOf(e))}</td>
-      <td>${netHtml(e)}</td>
-      <td>${leftHtml(e)}</td>
-      ${columns.map(row => `<td>${fmt(columnValue(e, row))}</td>`).join('')}
-      <td>
+      <td data-label="Date">${esc(salaryDateLabel(e))}</td>
+      <td data-label="Salary">${fmt(salaryOf(e))}</td>
+      <td data-label="Net salary">${netHtml(e)}</td>
+      <td data-label="Spending">${leftHtml(e)}</td>
+      ${columns.map(row => `<td data-label="${esc(columnLabel(row))}">${fmt(columnValue(e, row))}</td>`).join('')}
+      <td class="rowActions" data-label="Actions">
         <button class="details" data-details="${e.month}">Details</button>
         <button class="copy" data-copy="${e.month}">Copy</button>
         <button class="edit" data-edit="${e.month}">Edit</button>

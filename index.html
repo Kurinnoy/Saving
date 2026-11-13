@@ -9,6 +9,10 @@
   html { scrollbar-gutter: stable; }
   body { font-family: system-ui, sans-serif; margin: 0; background: #f3f5f9; color: #222; }
   main { width: 90%; margin: 0 auto; padding: 20px; }
+  @media (max-width: 600px) {
+    main { width: 100%; padding: 8px; }
+    .card { padding: 10px; }
+  }
   h1 { margin-top: 0; }
   .card { background: #fff; border-radius: 10px; padding: 16px; margin-bottom: 20px; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
   .totals { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
@@ -71,6 +75,120 @@
   .head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
   .tools { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
   .note { font-size: 12px; color: #777; }
+  @media (max-width: 600px) {
+    .scroll { overflow: visible; max-height: none; scrollbar-gutter: auto; }
+    #table { display: block; width: 100% !important; table-layout: auto; }
+    #table > thead { display: block; background: #fff; }
+    #headRow { display: none; }
+    #rows { display: block; }
+    #rows > tr:not(.child):not(.yearGroup) {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+      margin-bottom: 10px;
+      padding: 10px;
+      border: 1px solid #dfe3e8;
+      border-radius: 8px;
+      background: #fff;
+    }
+    #rows > tr:not(.child):not(.yearGroup) > td {
+      position: static;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 2px;
+      min-width: 0;
+      padding: 7px;
+      border: 0;
+      border-radius: 4px;
+      background: #f4f6f8;
+      box-shadow: none;
+      text-align: left;
+      overflow-wrap: anywhere;
+    }
+    #rows > tr:not(.child):not(.yearGroup) > td::before,
+    #foot td::before {
+      content: attr(data-label);
+      color: #687078;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    #rows > tr:not(.child):not(.yearGroup) > td:first-child {
+      justify-content: center;
+      padding-left: 0;
+      background: transparent;
+      font-size: 16px;
+      font-weight: 700;
+    }
+    #rows > tr:not(.child):not(.yearGroup) > td:first-child::before { content: none; }
+    #rows > tr:not(.child):not(.yearGroup) > td:nth-child(2) {
+      align-items: flex-end;
+      background: transparent;
+      color: #1a7a35;
+      font-size: 18px;
+      font-weight: 700;
+      text-align: right;
+    }
+    #rows > tr:not(.child):not(.yearGroup) > td.rowActions {
+      grid-column: 1 / -1;
+      padding: 0;
+      background: transparent;
+    }
+    #rows > tr:not(.child):not(.yearGroup) > td.rowActions::before { content: none; }
+    #rows > tr:not(.child):not(.yearGroup) > td.rowActions button { width: 100%; }
+    #rows > tr.yearGroup {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin: 4px 0 8px;
+      padding: 8px;
+      border-radius: 6px;
+      background: #eef3ff;
+    }
+    #rows > tr.yearGroup > td {
+      position: static;
+      display: block;
+      width: auto !important;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      box-shadow: none;
+    }
+    #rows > tr.yearGroup > td:nth-child(-n+2) {
+      position: static;
+      left: auto;
+      right: auto;
+      z-index: auto;
+      box-shadow: none;
+    }
+    #rows > tr.yearGroup > td:nth-child(n+3) { display: none; }
+    #foot {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+      margin-bottom: 12px;
+      background: #fff;
+    }
+    #foot td {
+      position: static;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      padding: 8px;
+      border: 0;
+      border-radius: 4px;
+      background: #eef2f5;
+      box-shadow: none;
+      text-align: left;
+      overflow-wrap: anywhere;
+    }
+    #foot td:first-child, #foot td:last-child, #foot td:empty { display: none; }
+    #rows > tr.child { display: block; margin-bottom: 10px; }
+    #rows > tr.child > td { display: block; padding: 10px 0; }
+    .detailsBox { position: static; width: 100%; }
+    .items { display: block; overflow-x: auto; }
+  }
 </style>
 </head>
 <body>
@@ -257,7 +375,7 @@ function detailsHtml(e) {
     <label class="incomeToggle"><input type="checkbox" name="income" ${item && editing.kind === 'incomes' ? 'checked' : ''}> Income</label>
     <select name="who" aria-label="Who">${options.map(([id, label]) => `<option value="${esc(id)}" ${item && item.who === id ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>
     <input name="note" aria-label="Note" placeholder="${item && item.who === 'other' ? 'Description' : 'Note'}" value="${esc(item ? item.note : '')}" ${item && item.who === 'other' ? 'required' : ''}>
-    <input name="amount" type="text" inputmode="text" aria-label="Amount" data-amount="${item ? item.amount : 0}" value="${item ? item.amount : ''}" placeholder="Amount" required>
+    <input name="amount" type="text" inputmode="decimal" aria-label="Amount" data-amount="${item ? item.amount : 0}" value="${item ? item.amount : ''}" placeholder="Amount" required>
     <select name="currency" aria-label="Currency">${['USD', 'UAH', 'EUR'].map(code => `<option value="${code}" ${code === (item ? 'USD' : AppSettings.load().defaultCurrency) ? 'selected' : ''}>${code}</option>`).join('')}</select>
     <input name="date" type="date" value="${dateValue}" aria-label="Date" required>
     <button type="submit">${item ? 'Save' : 'Add'}</button>
@@ -321,6 +439,7 @@ function render() {
   [...$('headRow').cells].forEach((cell, index) => { cell.style.width = `${widths[index]}px`; });
   $('table').style.setProperty('--first-column-width', `${widths[0]}px`);
   $('table').style.width = `${widths.reduce((sum, width) => sum + width, 0)}px`;
+  const columnLabel = key => HEAD.find(([id]) => id === key)?.[1] || key;
   $('rows').innerHTML = [...years].map(([year, entries]) => {
     const collapsed = !expandedYears.has(year);
     const group = `<tr class="yearGroup">
@@ -332,18 +451,18 @@ function render() {
     </tr>`;
     return group + (collapsed ? '' : entries.map(e => `
     <tr>
-      <td>${monthLabel(e.month)}</td>
-      <td><strong>${money(rowTotal(e))}</strong></td>
-      ${COLUMNS.map(f => `<td>${money(leftOf(e, f, family))}</td>`).join('')}
-      ${[...historyDefaultRows, ...historyOtherRows].map(row => `<td>${money(defaultRowValue(e, row))}</td>`).join('')}
-      <td>
+      <td data-label="Month">${monthLabel(e.month)}</td>
+      <td data-label="Total"><strong>${money(rowTotal(e))}</strong></td>
+      ${COLUMNS.map(f => `<td data-label="${esc(columnLabel(f))}">${money(leftOf(e, f, family))}</td>`).join('')}
+      ${[...historyDefaultRows, ...historyOtherRows].map(row => `<td data-label="${esc(columnLabel(row.id))}">${money(defaultRowValue(e, row))}</td>`).join('')}
+      <td class="rowActions" data-label="Actions">
         <button class="spend" data-spend="${e.month}">Income/Spending (${incomesOf(e).length}/${spendingsOf(e).length})</button>
       </td>
     </tr>${open.has(e.month) ? detailsHtml(e) : ''}`).join(''));
   }).join('') || `<tr><td colspan="${HEAD.length + 1}">No data yet</td></tr>`;
 
   $('foot').innerHTML = data.length
-    ? `<td>Total</td><td><strong>${money(data.reduce((s, e) => s + rowTotal(e), 0))}</strong></td>${COLUMNS.map(f => `<td>${footerShown(f) ? money(data.reduce((s, e) => s + leftOf(e, f, family), 0)) : ''}</td>`).join('')}${[...historyDefaultRows, ...historyOtherRows].map(row => `<td>${footerIds.has(row.id) ? money(data.reduce((s, e) => s + defaultRowValue(e, row), 0)) : ''}</td>`).join('')}<td></td>`
+    ? `<td>Total</td><td data-label="Total"><strong>${money(data.reduce((s, e) => s + rowTotal(e), 0))}</strong></td>${COLUMNS.map(f => `<td data-label="${esc(columnLabel(f))}">${footerShown(f) ? money(data.reduce((s, e) => s + leftOf(e, f, family), 0)) : ''}</td>`).join('')}${[...historyDefaultRows, ...historyOtherRows].map(row => `<td data-label="${esc(columnLabel(row.id))}">${footerIds.has(row.id) ? money(data.reduce((s, e) => s + defaultRowValue(e, row), 0)) : ''}</td>`).join('')}<td></td>`
     : '';
 }
 
@@ -454,7 +573,13 @@ $('headRow').addEventListener('click', ev => {
 });
 
 render();
-window.addEventListener('resize', render);
+let renderedWidth = window.innerWidth;
+window.addEventListener('resize', () => {
+  fitHistoryViewport();
+  if (window.innerWidth === renderedWidth) return;
+  renderedWidth = window.innerWidth;
+  render();
+});
 window.addEventListener('scroll', fitHistoryViewport, { passive: true });
 GitSync.ready().then(() => {
   refreshFamily();
