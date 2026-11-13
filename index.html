@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#2f6fed">
+<link rel="manifest" href="manifest.webmanifest">
+<script src="view-mode.js" defer></script>
 <title>Family Savings</title>
 <style>
   * { box-sizing: border-box; }
@@ -31,7 +34,7 @@
   button.copy { background: #2f6fed; padding: 4px 8px; font-size: 13px; }
   button.spend { background: #e08a00; padding: 4px 8px; font-size: 13px; }
   .neg { color: #d33; }
-  nav { margin-bottom: 16px; display: flex; gap: 16px; }
+  nav { margin-bottom: 16px; display: flex; align-items: center; flex-wrap: wrap; gap: 16px; }
   nav a { color: #2f6fed; text-decoration: none; font-weight: bold; }
   nav a.current { color: #222; }
   .total small { display: block; font-size: 12px; color: #555; margin-top: 4px; }
