@@ -6,6 +6,7 @@ const GitSync = (() => {
   const NAV_KEY = 'internalNavigation';
   const UNSENT_KEY = 'unsentChanges';
   const DELAY_MS = 1500;
+  const LOAD_TIMEOUT_MS = 15000;
   const { isValidGithubConfig, githubUrl, encodeContent } = Savings;
 
   // Settings and token are kept permanently; the encryption password only lives in the session.
@@ -33,10 +34,22 @@ const GitSync = (() => {
 
   // Returns the current file ({ sha, content }) or null when it does not exist yet.
   async function getFile(c) {
-    const res = await fetch(`${githubUrl(c)}?ref=${encodeURIComponent(c.branch)}`, { headers: headers(c), cache: 'no-store' });
-    if (res.status === 404) return null;
-    if (!res.ok) await fail(res);
-    return res.json();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), LOAD_TIMEOUT_MS);
+    try {
+      const res = await fetch(`${githubUrl(c)}?ref=${encodeURIComponent(c.branch)}`, {
+        headers: headers(c), cache: 'no-store', signal: controller.signal
+      });
+      if (res.status === 404) return null;
+      if (!res.ok) await fail(res);
+      return await res.json();
+    } catch (err) {
+      if (controller.signal.aborted) throw new Error('GitHub did not respond within 15 seconds. Check your connection and try again.');
+      if (err instanceof TypeError) throw new Error('Cannot reach api.github.com. Check your internet connection, VPN/proxy, or browser blocking and try again.');
+      throw err;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   // The data lives in sessionStorage: it is gone when the tab or browser session closes.
@@ -108,12 +121,27 @@ const GitSync = (() => {
 
   // Shows a password box in the status area and resolves once the password is typed.
   let passwordPromise = null;
+  let resolvePassword = null;
+  let passwordForm = null;
+  function setPassword(password) {
+    sessionStorage.setItem(PW_KEY, password);
+    if (password && resolvePassword) {
+      passwordForm.remove();
+      passwordForm = null;
+      passwordPromise = null;
+      const resolve = resolvePassword;
+      resolvePassword = null;
+      resolve();
+    }
+  }
   function askPassword() {
     if (passwordPromise) return passwordPromise;
     passwordPromise = new Promise(resolve => {
       const el = statusEl();
       if (!el) return; // nowhere to ask; stays pending
       const form = document.createElement('form');
+      passwordForm = form;
+      resolvePassword = resolve;
       const input = document.createElement('input');
       const button = document.createElement('button');
       input.type = 'password';
@@ -126,10 +154,7 @@ const GitSync = (() => {
       form.addEventListener('submit', ev => {
         ev.preventDefault();
         if (!input.value) return;
-        sessionStorage.setItem(PW_KEY, input.value);
-        form.remove();
-        passwordPromise = null;
-        resolve();
+        setPassword(input.value);
       });
       el.textContent = '';
       el.append(form);
@@ -216,6 +241,15 @@ const GitSync = (() => {
       show(`Loaded ${remote.data.length} month(s) from GitHub`, true);
     } catch (err) {
       show(`GitHub load failed: ${err.message}`, false);
+      const el = statusEl();
+      if (el) {
+        const retry = document.createElement('button');
+        retry.type = 'button';
+        retry.textContent = 'Retry';
+        retry.style.marginLeft = '8px';
+        retry.addEventListener('click', () => location.reload());
+        el.append(retry);
+      }
     }
   }
 
@@ -273,5 +307,5 @@ const GitSync = (() => {
     addEventListener('pagehide', stamp);
   })();
 
-  return { config, getFile, push, changePassword, schedule, allowEmptyOnce, ready, askPassword, SYNCED_KEY, CFG_KEY, PW_KEY };
+  return { config, getFile, push, changePassword, schedule, allowEmptyOnce, ready, askPassword, setPassword, SYNCED_KEY, CFG_KEY, PW_KEY };
 })();

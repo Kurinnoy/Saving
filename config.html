@@ -214,7 +214,7 @@ function validConfig() {
   if (['owner', 'repo', 'branch', 'path'].some(f => old[f] !== c[f])) sessionStorage.removeItem(SYNCED_KEY);
   const { password, ...stored } = c;
   localStorage.setItem(CFG_KEY, JSON.stringify(stored));
-  if (password) sessionStorage.setItem(PW_KEY, password); else sessionStorage.removeItem(PW_KEY);
+  if (password) GitSync.setPassword(password); else sessionStorage.removeItem(PW_KEY);
   return c;
 }
 
@@ -677,7 +677,7 @@ $('changePw').addEventListener('click', () => {
   if (!c) return pwStatus('Fill in the GitHub settings first.', false);
   run(async () => {
     const changed = await GitSync.changePassword(c, oldPw, newPw);
-    sessionStorage.setItem(PW_KEY, newPw);
+    GitSync.setPassword(newPw);
     $('password').value = newPw;
     ['pw_old', 'pw_new', 'pw_new2'].forEach(id => { $(id).value = ''; });
     pwStatus(changed ? 'Password changed and the file in GitHub re-encrypted.' : 'Password set. No file in GitHub yet; it will be encrypted with the new password when saved.', true);
