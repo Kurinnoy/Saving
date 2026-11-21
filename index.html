@@ -44,6 +44,11 @@
   .items td.amt, .items th.amt { width: 190px; min-width: 190px; padding-left: 4px; padding-right: 4px; text-align: right; white-space: nowrap; }
   .items .who { font-weight: bold; }
   .items .actions { white-space: nowrap; }
+  .detailFilters { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 10px; }
+  .detailFilters label { display: flex; align-items: center; gap: 6px; }
+  .detailFilters input { width: auto; }
+  .detailsTableScroll { overflow-x: auto; }
+  .items tfoot td { font-weight: bold; }
   .yearGroup td { background: #eef3ff; font-weight: bold; }
   .yearGroup button { padding: 4px 8px; font-size: 14px; }
   .items tr.fixed td { color: #555; }
@@ -332,16 +337,32 @@ const sortData = arr => {
 
 const editingItems = new Map();
 const expandedYears = new Set();
+const detailFilters = new Map();
+
+function detailAmounts(item) {
+  const values = { USD: item.amount };
+  const legacy = String(item.note || '').match(/(?:^|\()(\d[\d.,]*) ([A-Z]{3}), \d{4}-\d{2}-\d{2}\)?$/);
+  const currency = item.sourceCurrency || (legacy && legacy[2]);
+  const amount = item.sourceCurrency ? item.sourceAmount : legacy && Savings.resolveAmount(legacy[1], 0);
+  if (currency && currency !== 'USD' && Number.isFinite(amount)) values[currency] = amount;
+  return values;
+}
+
+function fixedDetailAmounts(e, amount, currency) {
+  if (currency === '%' || currency === 'USD') return { USD: amount };
+  const usd = Savings.currencyToUsd(amount, currency, storedRates[e.month], { [currency]: storedRates[`${e.month}|${currency}`] });
+  return { [currency]: amount, USD: Number.isFinite(usd) ? usd : null };
+}
 
 // One Income/Spending line of the details table; fixed lines come from My salary and cannot be deleted.
-function itemRow(e, kind, s, fixed) {
+function itemRow(e, kind, s, fixed, currencies, values) {
   const income = kind === 'incomes';
   const action = fixed ? '' : `<button type="button" class="edit" data-edititem="${esc(s.id)}" data-kind="${kind}" data-month="${e.month}">Edit</button> <button type="button" class="danger" data-delitem="${esc(s.id)}" data-kind="${kind}" data-month="${e.month}">Delete</button>`;
   return `<tr class="${income ? 'income' : 'spending'}${fixed ? ' fixed' : ''}">
     <td class="type">${income ? 'Income' : 'Spending'}</td>
     <td class="who">${esc(LABELS[s.who] || s.who)}</td>
     <td>${esc(s.note)}</td>
-    <td class="amt">${fmt(s.amount)}</td>
+    ${currencies.map(currency => `<td class="amt">${Number.isFinite(values[currency]) ? fmt(values[currency]) : ''}</td>`).join('')}
     <td class="actions">${action}</td>
   </tr>`;
 }
@@ -349,22 +370,59 @@ function itemRow(e, kind, s, fixed) {
 // One table per month: all income lines first (My salary lines, then typed ones), then spending lines.
 function detailsTable(e) {
   const rows = [];
+  const add = (kind, item, fixed = false, values = detailAmounts(item)) => rows.push({ kind, item, fixed, values });
   if (salaryOf(e) > 0 || e.allocation) {
     const alloc = allocationOf(e, family);
-    family.filter(person => shown(person, 'showInHistoryDetails') && person.showIncome === true).forEach(person => rows.push(itemRow(e, 'incomes', { who: person.id, note: 'From My salary', amount: salaryIncomeOf(e, person.id, family) }, true)));
+    family.filter(person => shown(person, 'showInHistoryDetails') && person.showIncome === true).forEach(person => {
+      const member = Savings.entryMember(e, person);
+      const currency = member.currency || 'USD';
+      const amount = member.enabled === false ? 0 : alloc[person.id] || 0;
+      add('incomes', { who: person.id, note: 'From My salary' }, true,
+        currency === '%' ? { USD: salaryIncomeOf(e, person.id, family) } : fixedDetailAmounts(e, amount, currency));
+    });
     // Saving, investment and the 10% are money set aside (income); every other monthly row is money going out.
-    detailRows.filter(row => row.showIncome === true || !['monthly_saving', 'monthly_investment', 'rate_10'].includes(row.id)).forEach(row => rows.push(itemRow(e, ['monthly_saving', 'monthly_investment', 'rate_10'].includes(row.id) ? 'incomes' : 'spendings',
-      { who: row.name, note: `From My salary (${row.currency === '%' ? 'USD' : row.currency})`, amount: row.id === 'monthly_investment'
-        ? row.currency === '%' ? salaryOf(e) * investmentOf(e) / 100 : investmentOf(e)
-        : rowBaseValue(e, row) }, true)));
+    detailRows.filter(row => row.showIncome === true || !['monthly_saving', 'monthly_investment', 'rate_10'].includes(row.id)).forEach(row => {
+      const saved = [...(e.defaultRows || []), ...(e.otherDefaults || [])].find(item => item.id === row.id);
+      const currency = saved?.currency || row.currency || 'USD';
+      const amount = row.id === 'monthly_investment' ? currency === '%' ? salaryOf(e) * investmentOf(e) / 100 : investmentOf(e)
+        : row.id === 'monthly_saving' ? currency === '%' ? salaryOf(e) * Savings.savingOf(e) / 100 : Savings.savingOf(e)
+        : rowBaseValue(e, row);
+      add(['monthly_saving', 'monthly_investment', 'rate_10'].includes(row.id) ? 'incomes' : 'spendings',
+        { who: whoOfRow(row), note: `From My salary (${currency === '%' ? 'USD' : currency})` }, true, fixedDetailAmounts(e, amount, currency));
+    });
   }
-  incomesOf(e).forEach(s => rows.push(itemRow(e, 'incomes', s, false)));
-  spendingsOf(e).forEach(s => rows.push(itemRow(e, 'spendings', s, false)));
-  if (!rows.length) rows.push('<tr><td colspan="5" class="note">No income or spending yet</td></tr>');
-  return `<table class="items">
-    <thead><tr><th>Type</th><th>Who</th><th>Note</th><th class="amt">Amount</th><th></th></tr></thead>
-    <tbody>${rows.join('')}</tbody>
-  </table>`;
+  incomesOf(e).forEach(item => add('incomes', item));
+  spendingsOf(e).forEach(item => add('spendings', item));
+  const available = [...new Set(rows.flatMap(row => Object.keys(row.values)))].filter(currency => rows.some(row => Number.isFinite(row.values[currency]) && row.values[currency] !== 0));
+  available.sort((first, second) => first === 'USD' ? -1 : second === 'USD' ? 1 : first.localeCompare(second));
+  const owners = [...new Set(rows.map(row => row.item.who))];
+  const filter = detailFilters.get(e.month) || { currency: '', kind: '', who: '', nonzero: false };
+  if (!available.includes(filter.currency)) filter.currency = '';
+  if (!owners.includes(filter.who)) filter.who = '';
+  const visible = rows.filter(row => (!filter.kind || row.kind === filter.kind)
+    && (!filter.who || row.item.who === filter.who)
+    && (!filter.currency || Number.isFinite(row.values[filter.currency]) && row.values[filter.currency] !== 0)
+    && (!filter.nonzero || Object.values(row.values).some(value => Number.isFinite(value) && value !== 0)));
+  const currencies = available.filter(currency => visible.some(row => Number.isFinite(row.values[currency]) && row.values[currency] !== 0));
+  const total = (kind, currency) => {
+    const included = visible.filter(row => row.kind === kind);
+    return included.some(row => row.values[currency] === null) ? null : included.reduce((sum, row) => sum + (row.values[currency] || 0), 0);
+  };
+  const footer = [['incomes', 'Income total'], ['spendings', 'Spending total'], ['net', 'Net total']].map(([kind, label]) => `<tr><td colspan="3">${label}</td>${currencies.map(currency => {
+    const income = total('incomes', currency), spending = total('spendings', currency);
+    const value = kind === 'net' ? income === null || spending === null ? null : income - spending : total(kind, currency);
+    return `<td class="amt">${value === null ? 'Rate unavailable' : money(value)}</td>`;
+  }).join('')}<td></td></tr>`).join('');
+  return `<div class="detailFilters" data-month="${e.month}">
+    <label>Type <select data-detail-filter="kind" aria-label="Detail type"><option value="">All rows</option><option value="incomes" ${filter.kind === 'incomes' ? 'selected' : ''}>Income</option><option value="spendings" ${filter.kind === 'spendings' ? 'selected' : ''}>Spending</option></select></label>
+    <label>Who <select data-detail-filter="who" aria-label="Detail who"><option value="">All</option>${owners.map(who => `<option value="${esc(who)}" ${filter.who === who ? 'selected' : ''}>${esc(LABELS[who] || who)}</option>`).join('')}</select></label>
+    <label>Currency <select data-detail-filter="currency" aria-label="Detail currency"><option value="">All currencies</option>${available.map(currency => `<option value="${esc(currency)}" ${filter.currency === currency ? 'selected' : ''}>${esc(currency)}</option>`).join('')}</select></label>
+    <label><input type="checkbox" data-detail-filter="nonzero" ${filter.nonzero ? 'checked' : ''}>Nonzero rows only</label>
+  </div><div class="detailsTableScroll"><table class="items">
+    <thead><tr><th>Type</th><th>Who</th><th>Note</th>${currencies.map(currency => `<th class="amt">${esc(currency)}</th>`).join('')}<th></th></tr></thead>
+    <tbody>${visible.map(row => itemRow(e, row.kind, row.item, row.fixed, currencies, row.values)).join('') || `<tr><td colspan="${currencies.length + 4}" class="note">${rows.length ? 'No matching rows' : 'No income or spending yet'}</td></tr>`}</tbody>
+    <tfoot>${footer}</tfoot>
+  </table></div>`;
 }
 
 function detailsHtml(e) {
@@ -372,15 +430,20 @@ function detailsHtml(e) {
   const dateValue = `${day.slice(0, 4)}-${day.slice(4, 6)}-${day.slice(6, 8)}`;
   const editing = editingItems.get(e.month);
   const item = editing && (e[editing.kind] || []).find(saved => saved.id === editing.id);
+  const values = item ? detailAmounts(item) : {};
+  const currency = item ? item.sourceCurrency || Object.keys(values).find(code => code !== 'USD') || 'USD' : AppSettings.load().defaultCurrency;
+  const amount = item ? values[currency] : '';
+  const itemDate = item && (item.sourceDate || item.note.match(/(\d{4}-\d{2}-\d{2})\)?$/)?.[1]);
+  const note = item ? item.note.replace(/(?:\s*\([^()]*\d{4}-\d{2}-\d{2}\)|^\d[\d.,]* [A-Z]{3}, \d{4}-\d{2}-\d{2}|^\d{4}-\d{2}-\d{2})$/, '').trim() : '';
   const options = item && !whoOptions.some(([id]) => id === item.who)
     ? [...whoOptions, [item.who, LABELS[item.who] || item.who]] : whoOptions;
   const form = `<form class="spendForm" data-month="${e.month}">
     <label class="incomeToggle"><input type="checkbox" name="income" ${item && editing.kind === 'incomes' ? 'checked' : ''}> Income</label>
     <select name="who" aria-label="Who">${options.map(([id, label]) => `<option value="${esc(id)}" ${item && item.who === id ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>
-    <input name="note" aria-label="Note" placeholder="${item && item.who === 'other' ? 'Description' : 'Note'}" value="${esc(item ? item.note : '')}" ${item && item.who === 'other' ? 'required' : ''}>
-    <input name="amount" type="text" inputmode="decimal" aria-label="Amount" data-amount="${item ? item.amount : 0}" value="${item ? item.amount : ''}" placeholder="Amount" required>
-    <select name="currency" aria-label="Currency">${['USD', 'UAH', 'EUR'].map(code => `<option value="${code}" ${code === (item ? 'USD' : AppSettings.load().defaultCurrency) ? 'selected' : ''}>${code}</option>`).join('')}</select>
-    <input name="date" type="date" value="${dateValue}" aria-label="Date" required>
+    <input name="note" aria-label="Note" placeholder="${item && item.who === 'other' ? 'Description' : 'Note'}" value="${esc(note)}" ${item && item.who === 'other' ? 'required' : ''}>
+    <input name="amount" type="text" inputmode="decimal" aria-label="Amount" data-amount="${item ? amount : 0}" value="${amount}" placeholder="Amount" required>
+    <select name="currency" aria-label="Currency">${[...new Set([...Savings.CURRENCIES.filter(code => code !== '%'), currency])].map(code => `<option value="${code}" ${code === currency ? 'selected' : ''}>${code}</option>`).join('')}</select>
+    <input name="date" type="date" value="${itemDate || dateValue}" aria-label="Date" required>
     <button type="submit">${item ? 'Save' : 'Add'}</button>
     ${item ? `<button type="button" class="secondary" data-cancelitem="${e.month}">Cancel</button>` : ''}
   </form>`;
@@ -523,6 +586,9 @@ $('rows').addEventListener('submit', async ev => {
   const savedNote = editing && currency === 'USD' ? f.note.value.trim() : f.note.value.trim() ? note : label;
   const spending = parseItem({ who: f.who.value, note: savedNote, amount }, PEOPLE);
   if (!spending) { delete f.dataset.saving; button.disabled = false; return; }
+  spending.sourceCurrency = currency;
+  spending.sourceAmount = typed;
+  spending.sourceDate = date;
   const kind = f.income.checked ? 'incomes' : 'spendings';
   data = editing
     ? Savings.updateItem(data, f.dataset.month, editing.kind, { ...spending, id: editing.id }, kind)
@@ -537,6 +603,14 @@ $('rows').addEventListener('input', ev => {
 });
 
 $('rows').addEventListener('change', ev => {
+  const filter = ev.target.dataset.detailFilter;
+  if (filter) {
+    const month = ev.target.closest('.detailFilters').dataset.month;
+    const current = detailFilters.get(month) || { currency: '', kind: '', who: '', nonzero: false };
+    detailFilters.set(month, { ...current, [filter]: filter === 'nonzero' ? ev.target.checked : ev.target.value });
+    render();
+    return;
+  }
   if (ev.target.name !== 'who') return;
   ev.target.form.elements.note.required = ev.target.value === 'other';
   ev.target.form.elements.note.placeholder = ev.target.value === 'other' ? 'Description' : 'Note';
